@@ -140,10 +140,41 @@ def create_provider(provider_name: str, model: str) -> MemoryEmbeddingProvider:
     raise ValueError("provider must be one of: fake, sentence-transformers")
 
 
+def default_model_for_provider(provider_name: str, model: str) -> str:
+    if provider_name == "sentence-transformers" and model == DEFAULT_FAKE_MODEL:
+        return DEFAULT_SENTENCE_TRANSFORMERS_MODEL
+    return model
+
+
+def evaluate_model(
+    *,
+    provider_name: str,
+    model: str,
+    min_top1_accuracy: float,
+    min_top3_recall: float,
+    include_details: bool,
+) -> dict[str, Any]:
+    resolved_model = default_model_for_provider(provider_name, model)
+    load_started = time.perf_counter()
+    provider = create_provider(provider_name, resolved_model)
+    if provider_name == "sentence-transformers":
+        provider.embed_text("加载测试")
+    load_ms = (time.perf_counter() - load_started) * 1000.0
+    summary = evaluate_provider(
+        provider=provider,
+        min_top1_accuracy=min_top1_accuracy,
+        min_top3_recall=min_top3_recall,
+        include_details=include_details,
+    )
+    summary["embedding_dimension"] = measure_embedding_dimension(provider)
+    summary["load_ms"] = round(load_ms, 2)
+    return summary
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate Stage 3 memory embedding retrieval on fixed Chinese fixtures.")
     parser.add_argument("--provider", choices=("fake", "sentence-transformers"), default="fake")
-    parser.add_argument("--model", default="fake-memory-embedding-v1")
+    parser.add_argument("--model", default=DEFAULT_FAKE_MODEL)
     parser.add_argument("--min-top1-accuracy", type=float, default=0.5)
     parser.add_argument("--min-top3-recall", type=float, default=0.75)
     parser.add_argument("--details", action="store_true")

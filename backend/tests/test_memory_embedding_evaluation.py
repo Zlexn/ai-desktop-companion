@@ -93,6 +93,34 @@ def test_split_compare_models_returns_empty_list_for_blank_value() -> None:
     assert evaluate_memory_embeddings.split_compare_models(" ,  , ") == []
 
 
+def test_default_model_for_provider_keeps_fake_default() -> None:
+    assert evaluate_memory_embeddings.default_model_for_provider("fake", "fake-memory-embedding-v1") == "fake-memory-embedding-v1"
+
+
+def test_default_model_for_provider_replaces_fake_default_for_sentence_transformers() -> None:
+    assert (
+        evaluate_memory_embeddings.default_model_for_provider("sentence-transformers", "fake-memory-embedding-v1")
+        == "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    )
+
+
+def test_evaluate_model_adds_load_time_and_embedding_dimension() -> None:
+    summary = evaluate_memory_embeddings.evaluate_model(
+        provider_name="fake",
+        model="fake-memory-embedding-v1",
+        min_top1_accuracy=0.5,
+        min_top3_recall=0.75,
+        include_details=False,
+    )
+
+    assert summary["provider"] == "fake"
+    assert summary["model"] == "fake-memory-embedding-v1"
+    assert summary["embedding_dimension"] == 6
+    assert summary["load_ms"] >= 0.0
+    assert "details" not in summary
+    assert summary["passed"] is True
+
+
 def test_create_sentence_transformers_provider_surfaces_missing_dependency(monkeypatch: pytest.MonkeyPatch) -> None:
     class MissingProvider:
         def __init__(self, model: str) -> None:
