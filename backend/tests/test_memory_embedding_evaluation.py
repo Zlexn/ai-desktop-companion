@@ -70,6 +70,29 @@ def test_fake_provider_evaluation_summary_is_json_compatible_and_passes() -> Non
     json.dumps(summary, ensure_ascii=False)
 
 
+def test_measure_embedding_dimension_uses_provider_vector_length() -> None:
+    provider = FakeMemoryEmbeddingProvider()
+
+    dimension = evaluate_memory_embeddings.measure_embedding_dimension(provider)
+
+    assert dimension == 6
+
+
+def test_split_compare_models_trims_and_drops_empty_items() -> None:
+    models = evaluate_memory_embeddings.split_compare_models(
+        " sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2, , BAAI/bge-m3 "
+    )
+
+    assert models == [
+        "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "BAAI/bge-m3",
+    ]
+
+
+def test_split_compare_models_returns_empty_list_for_blank_value() -> None:
+    assert evaluate_memory_embeddings.split_compare_models(" ,  , ") == []
+
+
 def test_create_sentence_transformers_provider_surfaces_missing_dependency(monkeypatch: pytest.MonkeyPatch) -> None:
     class MissingProvider:
         def __init__(self, model: str) -> None:

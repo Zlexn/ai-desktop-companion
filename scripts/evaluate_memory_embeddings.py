@@ -8,6 +8,10 @@ import time
 from pathlib import Path
 from typing import Any
 
+DEFAULT_FAKE_MODEL = "fake-memory-embedding-v1"
+DEFAULT_SENTENCE_TRANSFORMERS_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+DIMENSION_PROBE_TEXT = "记忆检索维度测试"
+
 ROOT = Path(__file__).resolve().parents[1]
 BACKEND = ROOT / "backend"
 if str(BACKEND) not in sys.path:
@@ -53,6 +57,14 @@ def cosine_similarity(left: list[float], right: list[float]) -> float:
     if left_norm == 0.0 or right_norm == 0.0:
         return 0.0
     return dot / (left_norm * right_norm)
+
+
+def measure_embedding_dimension(provider: MemoryEmbeddingProvider) -> int:
+    return len(provider.embed_text(DIMENSION_PROBE_TEXT))
+
+
+def split_compare_models(value: str) -> list[str]:
+    return [item.strip() for item in value.split(",") if item.strip()]
 
 
 def rank_memories(
