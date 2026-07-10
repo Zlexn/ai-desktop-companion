@@ -121,6 +121,72 @@ def test_evaluate_model_adds_load_time_and_embedding_dimension() -> None:
     assert summary["passed"] is True
 
 
+def test_models_for_args_uses_single_resolved_model_when_compare_models_is_empty() -> None:
+    args = type(
+        "Args",
+        (),
+        {
+            "provider": "sentence-transformers",
+            "model": "fake-memory-embedding-v1",
+            "compare_models": "",
+        },
+    )()
+
+    assert evaluate_memory_embeddings.models_for_args(args) == [
+        "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    ]
+
+
+def test_models_for_args_uses_compare_models_when_provided() -> None:
+    args = type(
+        "Args",
+        (),
+        {
+            "provider": "sentence-transformers",
+            "model": "ignored-model",
+            "compare_models": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2,BAAI/bge-m3",
+        },
+    )()
+
+    assert evaluate_memory_embeddings.models_for_args(args) == [
+        "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "BAAI/bge-m3",
+    ]
+
+
+def test_build_cli_result_returns_single_summary_without_compare_wrapper() -> None:
+    summaries = [{"model": "fake-memory-embedding-v1", "passed": True}]
+
+    result = evaluate_memory_embeddings.build_cli_result(
+        provider_name="fake",
+        summaries=summaries,
+        compare_mode=False,
+    )
+
+    assert result == summaries[0]
+
+
+def test_build_cli_result_wraps_multiple_model_summaries() -> None:
+    summaries = [
+        {"model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2", "passed": True},
+        {"model": "BAAI/bge-m3", "passed": False},
+    ]
+
+    result = evaluate_memory_embeddings.build_cli_result(
+        provider_name="sentence-transformers",
+        summaries=summaries,
+        compare_mode=True,
+    )
+
+    assert result == {
+        "provider": "sentence-transformers",
+        "case_count": len(EVALUATION_CASES),
+        "model_count": 2,
+        "passed": False,
+        "models": summaries,
+    }
+
+
 def test_create_sentence_transformers_provider_surfaces_missing_dependency(monkeypatch: pytest.MonkeyPatch) -> None:
     class MissingProvider:
         def __init__(self, model: str) -> None:

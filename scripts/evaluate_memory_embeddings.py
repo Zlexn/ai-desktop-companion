@@ -171,10 +171,34 @@ def evaluate_model(
     return summary
 
 
+def models_for_args(args: argparse.Namespace) -> list[str]:
+    compare_models = split_compare_models(args.compare_models)
+    if compare_models:
+        return compare_models
+    return [default_model_for_provider(args.provider, args.model)]
+
+
+def build_cli_result(*, provider_name: str, summaries: list[dict[str, Any]], compare_mode: bool) -> dict[str, Any]:
+    if not compare_mode and len(summaries) == 1:
+        return summaries[0]
+    return {
+        "provider": provider_name,
+        "case_count": len(EVALUATION_CASES),
+        "model_count": len(summaries),
+        "passed": all(summary["passed"] for summary in summaries),
+        "models": summaries,
+    }
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate Stage 3 memory embedding retrieval on fixed Chinese fixtures.")
     parser.add_argument("--provider", choices=("fake", "sentence-transformers"), default="fake")
     parser.add_argument("--model", default=DEFAULT_FAKE_MODEL)
+    parser.add_argument(
+        "--compare-models",
+        default="",
+        help="Comma-separated model names to evaluate in one run. Overrides --model when provided.",
+    )
     parser.add_argument("--min-top1-accuracy", type=float, default=0.5)
     parser.add_argument("--min-top3-recall", type=float, default=0.75)
     parser.add_argument("--details", action="store_true")
@@ -183,27 +207,28 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    model = args.model
-    if args.provider == "sentence-transformers" and model == "fake-memory-embedding-v1":
-        model = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
-    load_started = time.perf_counter()
+    summaries: list[dict[str, Any]] = []
     try:
-        provider = create_provider(args.provider, model)
-        if args.provider == "sentence-transformers":
-            provider.embed_text("加载测试")
+        for model in models_for_args(args):
+            summaries.append(
+                evaluate_model(
+                    provider_name=args.provider,
+                    model=model,
+                    min_top1_accuracy=args.min_top1_accuracy,
+                    min_top3_recall=args.min_top3_recall,
+                    include_details=args.details,
+                )
+            )
     except MemoryEmbeddingUnavailableError as exc:
         print(str(exc), file=sys.stderr)
         return 2
-    load_ms = (time.perf_counter() - load_started) * 1000.0
-    summary = evaluate_provider(
-        provider=provider,
-        min_top1_accuracy=args.min_top1_accuracy,
-        min_top3_recall=args.min_top3_recall,
-        include_details=args.details,
+    result = build_cli_result(
+        provider_name=args.provider,
+        summaries=summaries,
+        compare_mode=bool(split_compare_models(args.compare_models)),
     )
-    summary["load_ms"] = round(load_ms, 2)
-    print(json.dumps(summary, ensure_ascii=False, indent=2))
-    return 0 if summary["passed"] else 1
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0 if result["passed"] else 1
 
 
 if __name__ == "__main__":
