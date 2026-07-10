@@ -113,7 +113,7 @@ class SessionSummaryRepository:
                    covered_message_end_id, message_count, metadata_json, created_at, updated_at
             FROM session_summaries
             WHERE session_id = ?
-            ORDER BY created_at DESC
+            ORDER BY created_at DESC, rowid DESC
             LIMIT 1
             """,
             (session_id,),
