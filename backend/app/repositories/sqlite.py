@@ -27,6 +27,28 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE INDEX IF NOT EXISTS idx_messages_session_created
 ON messages(session_id, created_at);
 
+CREATE TABLE IF NOT EXISTS session_summaries (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    summary_text TEXT NOT NULL,
+    source TEXT NOT NULL CHECK (source IN ('manual', 'generated')),
+    covered_message_start_id TEXT,
+    covered_message_end_id TEXT,
+    message_count INTEGER NOT NULL CHECK (message_count >= 0),
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+    FOREIGN KEY (covered_message_start_id) REFERENCES messages(id) ON DELETE SET NULL,
+    FOREIGN KEY (covered_message_end_id) REFERENCES messages(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_session_summaries_session_created
+ON session_summaries(session_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_session_summaries_session_updated
+ON session_summaries(session_id, updated_at DESC);
+
 CREATE TABLE IF NOT EXISTS memories (
     id TEXT PRIMARY KEY,
     content TEXT NOT NULL,
@@ -154,6 +176,12 @@ def init_db(connection: sqlite3.Connection) -> None:
     _migrate_memories_candidate_constraints(connection)
     connection.executescript(
         """
+        CREATE INDEX IF NOT EXISTS idx_session_summaries_session_created
+        ON session_summaries(session_id, created_at DESC);
+
+        CREATE INDEX IF NOT EXISTS idx_session_summaries_session_updated
+        ON session_summaries(session_id, updated_at DESC);
+
         CREATE INDEX IF NOT EXISTS idx_memories_status_importance_updated
         ON memories(status, importance DESC, updated_at DESC);
 

@@ -18,6 +18,25 @@ class Session:
     updated_at: datetime
 
 
+class SessionSummarySource(StrEnum):
+    MANUAL = "manual"
+    GENERATED = "generated"
+
+
+@dataclass(frozen=True)
+class SessionSummary:
+    id: str
+    session_id: str
+    summary_text: str
+    source: SessionSummarySource
+    covered_message_start_id: str | None
+    covered_message_end_id: str | None
+    message_count: int
+    metadata: dict[str, Any]
+    created_at: datetime
+    updated_at: datetime
+
+
 @dataclass(frozen=True)
 class Message:
     id: str
