@@ -27,7 +27,8 @@ def test_stage3h_setup_helper_uses_isolated_memory_embedding_env() -> None:
     assert "sentence-transformers" in setup_script
     assert "pip install -e" in setup_script
     assert "evaluate_memory_embeddings.py --provider sentence-transformers" in setup_script
-
+    assert "BAAI/bge-m3" in setup_script
+    assert "--compare-models" in setup_script
 
     ids = [memory["id"] for memory in MEMORY_FIXTURES]
 

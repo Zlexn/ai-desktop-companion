@@ -13,5 +13,7 @@ if (-not (Test-Path $PythonExe)) {
 & $PythonExe -m pip install sentence-transformers
 
 Write-Host "Memory embedding evaluation environment is ready: $PythonExe"
-Write-Host "Run:"
+Write-Host "Run single-model MiniLM evaluation:"
 Write-Host ".\.venv-memory-embed\Scripts\python.exe scripts\evaluate_memory_embeddings.py --provider sentence-transformers --model sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2 --details"
+Write-Host "Run Stage 3J candidate comparison:"
+Write-Host ".\.venv-memory-embed\Scripts\python.exe scripts\evaluate_memory_embeddings.py --provider sentence-transformers --compare-models sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2,BAAI/bge-m3 --details"
