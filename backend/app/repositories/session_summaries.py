@@ -105,3 +105,22 @@ class SessionSummaryRepository:
             (session_id,),
         ).fetchall()
         return [_row_to_summary(row) for row in rows]
+
+    def latest_for_session(self, session_id: str) -> SessionSummary | None:
+        row = self._connection.execute(
+            """
+            SELECT id, session_id, summary_text, source, covered_message_start_id,
+                   covered_message_end_id, message_count, metadata_json, created_at, updated_at
+            FROM session_summaries
+            WHERE session_id = ?
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (session_id,),
+        ).fetchone()
+        return _row_to_summary(row) if row else None
+
+    def delete(self, summary_id: str) -> bool:
+        cursor = self._connection.execute("DELETE FROM session_summaries WHERE id = ?", (summary_id,))
+        self._connection.commit()
+        return cursor.rowcount > 0
