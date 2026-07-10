@@ -1,6 +1,9 @@
 from pathlib import Path
 
-from app.domain.models import SessionSummary, SessionSummarySource
+from app.domain.models import ChatRole, SessionSummary, SessionSummarySource
+from app.repositories.messages import MessageRepository
+from app.repositories.session_summaries import SessionSummaryRepository
+from app.repositories.sessions import SessionRepository
 from app.repositories.sqlite import managed_connection
 
 
@@ -35,3 +38,34 @@ def test_session_summaries_table_is_created(tmp_path: Path) -> None:
         "created_at",
         "updated_at",
     }
+
+
+def test_create_and_list_session_summaries(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'summaries.db'}"
+
+    with managed_connection(database_url) as connection:
+        sessions = SessionRepository(connection)
+        messages = MessageRepository(connection)
+        summaries = SessionSummaryRepository(connection)
+        session = sessions.create("summary scope")
+        first_message = messages.add(session.id, ChatRole.USER, "第一条消息")
+        last_message = messages.add(session.id, ChatRole.ASSISTANT, "第二条消息")
+
+        summary = summaries.create(
+            session_id=session.id,
+            summary_text="用户问候，助手回应。",
+            covered_message_start_id=first_message.id,
+            covered_message_end_id=last_message.id,
+            message_count=2,
+            metadata={"note": "synthetic"},
+        )
+        listed = summaries.list_for_session(session.id)
+
+    assert summary.session_id == session.id
+    assert summary.summary_text == "用户问候，助手回应。"
+    assert summary.source == SessionSummarySource.MANUAL
+    assert summary.covered_message_start_id == first_message.id
+    assert summary.covered_message_end_id == last_message.id
+    assert summary.message_count == 2
+    assert summary.metadata == {"note": "synthetic"}
+    assert listed == [summary]
