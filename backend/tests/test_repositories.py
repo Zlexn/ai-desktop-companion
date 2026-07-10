@@ -783,6 +783,32 @@ def test_historical_company_does_not_conflict_with_current_company(database_url:
         assert conflicts == []
 
 
+def test_important_events_do_not_use_user_fact_conflict_patterns(database_url: str) -> None:
+    with managed_connection(database_url) as connection:
+        memories = MemoryRepository(connection)
+        memories.create(
+            content="用户去年就职于甲公司。",
+            memory_type=MemoryType.IMPORTANT_EVENT,
+            source=MemorySource.MANUAL,
+            source_session_id=None,
+            importance=3,
+            confidence=1.0,
+            metadata={},
+        )
+
+        _, conflicts = memories.create(
+            content="用户就职于乙公司。",
+            memory_type=MemoryType.IMPORTANT_EVENT,
+            source=MemorySource.MANUAL,
+            source_session_id=None,
+            importance=3,
+            confidence=1.0,
+            metadata={},
+        )
+
+        assert conflicts == []
+
+
 def test_goal_and_preparation_overlap_returns_conflict(database_url: str) -> None:
     with managed_connection(database_url) as connection:
         memories = MemoryRepository(connection)
