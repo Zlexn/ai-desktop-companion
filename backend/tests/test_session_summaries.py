@@ -2,7 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from app.domain.models import ChatRole, SessionSummary, SessionSummarySource
+from app.domain.models import ChatRole, MemorySource, MemoryType, SessionSummary, SessionSummarySource
+from app.repositories.memories import MemoryRepository
 from app.repositories.messages import MessageRepository
 from app.repositories.session_summaries import SessionSummaryRepository
 from app.repositories.sessions import SessionRepository
@@ -117,3 +118,45 @@ def test_session_summary_rejects_empty_text_and_negative_message_count(tmp_path:
             summaries.create(session_id=session.id, summary_text="   ")
         with pytest.raises(ValueError, match="message_count must be non-negative"):
             summaries.create(session_id=session.id, summary_text="摘要", message_count=-1)
+
+
+def test_deleting_session_cascades_session_summaries(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'summaries.db'}"
+
+    with managed_connection(database_url) as connection:
+        sessions = SessionRepository(connection)
+        summaries = SessionSummaryRepository(connection)
+        session = sessions.create("cascade")
+        summaries.create(session_id=session.id, summary_text="删除会话时应删除摘要")
+
+        assert summaries.list_for_session(session.id)
+        assert sessions.delete(session.id) is True
+        assert summaries.list_for_session(session.id) == []
+
+
+def test_session_summaries_do_not_create_long_term_memories(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'summaries.db'}"
+
+    with managed_connection(database_url) as connection:
+        sessions = SessionRepository(connection)
+        summaries = SessionSummaryRepository(connection)
+        memories = MemoryRepository(connection)
+        session = sessions.create("separation")
+
+        summaries.create(session_id=session.id, summary_text="这是会话摘要，不是长期记忆。")
+        memory, conflicts = memories.create(
+            content="用户喜欢红茶。",
+            memory_type=MemoryType.PREFERENCE,
+            source=MemorySource.MANUAL,
+            source_session_id=session.id,
+            importance=3,
+            confidence=0.8,
+        )
+
+        listed_summaries = summaries.list_for_session(session.id)
+        listed_memories = memories.list()
+
+    assert len(listed_summaries) == 1
+    assert listed_summaries[0].summary_text == "这是会话摘要，不是长期记忆。"
+    assert conflicts == []
+    assert listed_memories == [memory]
