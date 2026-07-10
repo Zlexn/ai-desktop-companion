@@ -64,6 +64,46 @@ def _strip_goal_prefix(value: str) -> str:
     return normalized
 
 
+def _current_user_fact_signature(content: str) -> MemorySemanticSignature | None:
+    clean = content.strip()
+    name = re.fullmatch(r"用户(?:的)?名字是(.+?)[。.]?", clean)
+    if name:
+        value = _normalize_semantic_value(name.group(1))
+        return MemorySemanticSignature("name", value) if value else None
+    called = re.fullmatch(r"用户叫(.+?)[。.]?", clean)
+    if called:
+        value = _normalize_semantic_value(called.group(1))
+        return MemorySemanticSignature("name", value) if value else None
+
+    school = re.fullmatch(r"用户就读于(.+?)[。.]?", clean)
+    if school:
+        value = _normalize_semantic_value(school.group(1))
+        return MemorySemanticSignature("school", value) if value else None
+    school_study = re.fullmatch(r"用户在(.+?)读书[。.]?", clean)
+    if school_study:
+        value = _normalize_semantic_value(school_study.group(1))
+        return MemorySemanticSignature("school", value) if value else None
+    school_student = re.fullmatch(r"用户是(.+?)学生[。.]?", clean)
+    if school_student:
+        value = _normalize_semantic_value(school_student.group(1))
+        return MemorySemanticSignature("school", value) if value else None
+
+    company = re.fullmatch(r"用户就职于(.+?)[。.]?", clean)
+    if company:
+        value = _normalize_semantic_value(company.group(1))
+        return MemorySemanticSignature("company", value) if value else None
+    company_work = re.fullmatch(r"用户在(.+?)工作[。.]?", clean)
+    if company_work:
+        value = _normalize_semantic_value(company_work.group(1))
+        return MemorySemanticSignature("company", value) if value else None
+    company_named = re.fullmatch(r"用户的公司是(.+?)[。.]?", clean)
+    if company_named:
+        value = _normalize_semantic_value(company_named.group(1))
+        return MemorySemanticSignature("company", value) if value else None
+
+    return None
+
+
 def _semantic_signature(content: str, memory_type: MemoryType) -> MemorySemanticSignature | None:
     clean = content.strip()
     if memory_type == MemoryType.PREFERENCE:
@@ -86,6 +126,9 @@ def _semantic_signature(content: str, memory_type: MemoryType) -> MemorySemantic
         if occupation:
             value = _normalize_semantic_value(occupation.group(1))
             return MemorySemanticSignature("occupation", value) if value else None
+        expanded = _current_user_fact_signature(clean)
+        if expanded is not None:
+            return expanded
         return None
 
     if memory_type == MemoryType.LONG_TERM_GOAL:

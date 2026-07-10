@@ -627,6 +627,84 @@ def test_occupation_single_value_fact_conflicts_when_value_changes(database_url:
         assert [memory.id for memory in conflicts] == [student.id]
 
 
+def test_name_single_value_fact_conflicts_when_value_changes(database_url: str) -> None:
+    with managed_connection(database_url) as connection:
+        memories = MemoryRepository(connection)
+        zhang, _ = memories.create(
+            content="用户的名字是张三。",
+            memory_type=MemoryType.USER_FACT,
+            source=MemorySource.MANUAL,
+            source_session_id=None,
+            importance=3,
+            confidence=1.0,
+            metadata={},
+        )
+
+        _, conflicts = memories.create(
+            content="用户叫李四。",
+            memory_type=MemoryType.USER_FACT,
+            source=MemorySource.MANUAL,
+            source_session_id=None,
+            importance=3,
+            confidence=1.0,
+            metadata={},
+        )
+
+        assert [memory.id for memory in conflicts] == [zhang.id]
+
+
+def test_school_single_value_fact_conflicts_when_value_changes(database_url: str) -> None:
+    with managed_connection(database_url) as connection:
+        memories = MemoryRepository(connection)
+        fudan, _ = memories.create(
+            content="用户就读于复旦大学。",
+            memory_type=MemoryType.USER_FACT,
+            source=MemorySource.MANUAL,
+            source_session_id=None,
+            importance=3,
+            confidence=1.0,
+            metadata={},
+        )
+
+        _, conflicts = memories.create(
+            content="用户在上海交通大学读书。",
+            memory_type=MemoryType.USER_FACT,
+            source=MemorySource.MANUAL,
+            source_session_id=None,
+            importance=3,
+            confidence=1.0,
+            metadata={},
+        )
+
+        assert [memory.id for memory in conflicts] == [fudan.id]
+
+
+def test_company_single_value_fact_conflicts_when_value_changes(database_url: str) -> None:
+    with managed_connection(database_url) as connection:
+        memories = MemoryRepository(connection)
+        old_company, _ = memories.create(
+            content="用户就职于甲公司。",
+            memory_type=MemoryType.USER_FACT,
+            source=MemorySource.MANUAL,
+            source_session_id=None,
+            importance=3,
+            confidence=1.0,
+            metadata={},
+        )
+
+        _, conflicts = memories.create(
+            content="用户的公司是乙公司。",
+            memory_type=MemoryType.USER_FACT,
+            source=MemorySource.MANUAL,
+            source_session_id=None,
+            importance=3,
+            confidence=1.0,
+            metadata={},
+        )
+
+        assert [memory.id for memory in conflicts] == [old_company.id]
+
+
 def test_goal_and_preparation_overlap_returns_conflict(database_url: str) -> None:
     with managed_connection(database_url) as connection:
         memories = MemoryRepository(connection)
