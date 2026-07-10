@@ -705,6 +705,84 @@ def test_company_single_value_fact_conflicts_when_value_changes(database_url: st
         assert [memory.id for memory in conflicts] == [old_company.id]
 
 
+def test_historical_residence_does_not_conflict_with_current_residence(database_url: str) -> None:
+    with managed_connection(database_url) as connection:
+        memories = MemoryRepository(connection)
+        memories.create(
+            content="用户住在以前的北京。",
+            memory_type=MemoryType.USER_FACT,
+            source=MemorySource.MANUAL,
+            source_session_id=None,
+            importance=3,
+            confidence=1.0,
+            metadata={},
+        )
+
+        _, conflicts = memories.create(
+            content="用户住在上海。",
+            memory_type=MemoryType.USER_FACT,
+            source=MemorySource.MANUAL,
+            source_session_id=None,
+            importance=3,
+            confidence=1.0,
+            metadata={},
+        )
+
+        assert conflicts == []
+
+
+def test_historical_school_does_not_conflict_with_current_school(database_url: str) -> None:
+    with managed_connection(database_url) as connection:
+        memories = MemoryRepository(connection)
+        memories.create(
+            content="用户就读于曾经的复旦大学。",
+            memory_type=MemoryType.USER_FACT,
+            source=MemorySource.MANUAL,
+            source_session_id=None,
+            importance=3,
+            confidence=1.0,
+            metadata={},
+        )
+
+        _, conflicts = memories.create(
+            content="用户就读于上海交通大学。",
+            memory_type=MemoryType.USER_FACT,
+            source=MemorySource.MANUAL,
+            source_session_id=None,
+            importance=3,
+            confidence=1.0,
+            metadata={},
+        )
+
+        assert conflicts == []
+
+
+def test_historical_company_does_not_conflict_with_current_company(database_url: str) -> None:
+    with managed_connection(database_url) as connection:
+        memories = MemoryRepository(connection)
+        memories.create(
+            content="用户就职于去年的甲公司。",
+            memory_type=MemoryType.USER_FACT,
+            source=MemorySource.MANUAL,
+            source_session_id=None,
+            importance=3,
+            confidence=1.0,
+            metadata={},
+        )
+
+        _, conflicts = memories.create(
+            content="用户就职于乙公司。",
+            memory_type=MemoryType.USER_FACT,
+            source=MemorySource.MANUAL,
+            source_session_id=None,
+            importance=3,
+            confidence=1.0,
+            metadata={},
+        )
+
+        assert conflicts == []
+
+
 def test_goal_and_preparation_overlap_returns_conflict(database_url: str) -> None:
     with managed_connection(database_url) as connection:
         memories = MemoryRepository(connection)

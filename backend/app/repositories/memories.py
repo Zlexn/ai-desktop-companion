@@ -64,6 +64,13 @@ def _strip_goal_prefix(value: str) -> str:
     return normalized
 
 
+_HISTORICAL_MARKERS = ("以前", "之前", "过去", "曾经", "去年", "上个月", "小时候")
+
+
+def _has_historical_marker(content: str) -> bool:
+    return any(marker in content for marker in _HISTORICAL_MARKERS)
+
+
 def _current_user_fact_signature(content: str) -> MemorySemanticSignature | None:
     clean = content.strip()
     name = re.fullmatch(r"用户(?:的)?名字是(.+?)[。.]?", clean)
@@ -118,6 +125,8 @@ def _semantic_signature(content: str, memory_type: MemoryType) -> MemorySemantic
         return None
 
     if memory_type == MemoryType.USER_FACT:
+        if _has_historical_marker(clean):
+            return None
         residence = re.fullmatch(r"用户住在(.+?)[。.]?", clean)
         if residence:
             value = _normalize_semantic_value(residence.group(1))
