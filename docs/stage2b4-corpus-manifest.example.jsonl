@@ -1,0 +1,3 @@
+{"id":"P001","audio_path":"clean/P001.wav","reference_text":"今天晚上我想先休息十分钟，然后再继续整理桌面。","category":"daily","language":"zh","condition":"clean","authorized":true}
+{"id":"P002","audio_path":"clean/P002.wav","reference_text":"测试数字一二三四五，订单编号是九零七二。","category":"numbers","language":"zh","condition":"clean","authorized":true}
+{"id":"P003","audio_path":"clean/P003.wav","reference_text":"我今天在 VS Code 里运行了 npm test 和 pytest。","category":"mixed_terms","language":"zh","condition":"clean","authorized":true}

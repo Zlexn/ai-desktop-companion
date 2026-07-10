@@ -1,0 +1,67 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+*.egg-info/
+
+# Local configuration and data
+.env
+backend/data/
+*.sqlite
+*.sqlite3
+*.db
+data/*.wav
+data/*tts*.wav
+data/stage1-character-eval-results*.json
+data/stage1-character-eval*.db
+
+# Node / Vite
+frontend/node_modules/
+frontend/dist/
+frontend/coverage/
+frontend/*.tsbuildinfo
+frontend/test-results/
+frontend/playwright-report/
+frontend/.playwright/
+
+# Generated browser VAD/ONNX assets copied from node_modules for local Vite serving
+frontend/public/vendor/vad/
+frontend/public/vendor/onnxruntime/
+
+# Smoke verification artifacts
+smoke-frontend*.png
+.claude-*.mjs
+frontend/.claude-*.mjs
+.chrome-smoke-profile/
+*.pid
+*.log
+.vite/
+
+# Claude Code temporary worktrees
+.claude/worktrees/
+
+# ASR benchmark isolated environment
+.venv-asr-bench/
+
+# TTS isolated environment and external model/runtime repos
+.venv-tts/
+external/
+
+# Memory embedding isolated evaluation environment
+.venv-memory-embed/
+
+# ASR benchmark corpus and generated outputs
+asr-benchmark-corpus/
+asr-benchmark-output/
+asr-benchmark-results/
+*asr-benchmark-full-text*
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
