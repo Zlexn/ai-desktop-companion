@@ -140,6 +140,7 @@ It must not:
 - Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\src\desktop\electronSetup.test.ts`
 - Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\pet.html`
 - Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\src\pet\main.tsx`
+- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\scripts\check-pet-build.mjs`
 - Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\vite.electron-tests.config.ts`
 - Modify: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\package.json`
 - Modify: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\package-lock.json`
@@ -158,19 +159,15 @@ it('pins Electron 43.1.1 and exposes development shell scripts', async () => {
   const pkg = JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8'));
   expect(pkg.devDependencies.electron).toBe('43.1.1');
   expect(pkg.scripts['desktop:renderer']).toBe('vite --host 127.0.0.1 --port 5173 --strictPort');
-  expect(pkg.scripts['desktop:dev']).toBe('electron electron/main.mjs');
+  expect(pkg.scripts['desktop:dev']).toBeUndefined();
   expect(pkg.scripts['test:electron']).toContain('vite.electron-tests.config.ts');
+  expect(pkg.scripts['check:pet-build']).toBe('node scripts/check-pet-build.mjs');
 });
 
 it('has an independent executable pet renderer entry', async () => {
   const html = await readFile(resolve(root, 'pet.html'), 'utf8');
   expect(html).toContain('<script type="module" src="/src/pet/main.tsx"></script>');
   await expect(access(resolve(root, 'src', 'pet', 'main.tsx'))).resolves.toBeUndefined();
-});
-
-it('emits the pet renderer as a JavaScript module in the production build', async () => {
-  const html = await readFile(resolve(root, 'dist', 'pet.html'), 'utf8');
-  expect(html).toMatch(/<script type="module"[^>]+src="(?:\.\/|\/)assets\/pet-[^"]+\.js"/);
 });
 ```
 
@@ -193,10 +190,9 @@ export const DESKTOP_DEV_HOST = '127.0.0.1';
 export const DESKTOP_DEV_PORT = 5173;
 export const DESKTOP_DEV_ORIGIN = `http://${DESKTOP_DEV_HOST}:${DESKTOP_DEV_PORT}`;
 export const DESKTOP_DEV_WS_ORIGIN = `ws://${DESKTOP_DEV_HOST}:${DESKTOP_DEV_PORT}`;
-export const DESKTOP_CSP_NONCE = 'ai-desktop-dev-shell';
 ```
 
-Both `vite.config.ts` and `electron/runtime-config.mjs` import these constants. Set Vite `html.cspNonce: DESKTOP_CSP_NONCE` so `@vitejs/plugin-react` applies it to the injected Fast Refresh module preamble/scripts; Task 4 includes the matching nonce in CSP `script-src`. Task 4 may validate an optional `VITE_DEV_ORIGIN`, but it must equal `DESKTOP_DEV_ORIGIN` exactly. This prevents Vite, Electron, CSP, and smoke from selecting different aliases/ports.
+`dev-origin.mjs` owns only the fixed loopback host, port, and derived HTTP/WebSocket origins in Task 1. CSP nonce generation and Vite/Electron propagation belong to Task 4; Task 1 must not define a fixed nonce or configure `html.cspNonce`.
 
 Use the following exact `package.json` additions; retain all existing scripts and dependencies.
 
@@ -204,8 +200,8 @@ Use the following exact `package.json` additions; retain all existing scripts an
 {
   "scripts": {
     "desktop:renderer": "vite --host 127.0.0.1 --port 5173 --strictPort",
-    "desktop:dev": "electron electron/main.mjs",
     "test:electron": "vitest run --config vite.electron-tests.config.ts",
+    "check:pet-build": "node scripts/check-pet-build.mjs",
     "smoke:electron:windows": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ..\\scripts\\smoke_windows_electron_shell.ps1"
   },
   "devDependencies": {
@@ -218,9 +214,7 @@ Use this Vite build entry configuration while preserving the existing proxy entr
 
 ```ts
 import { resolve } from 'node:path';
-import { DESKTOP_CSP_NONCE } from './dev-origin.mjs';
 
-html: { cspNonce: DESKTOP_CSP_NONCE },
 build: {
   rollupOptions: {
     input: {
@@ -285,6 +279,20 @@ createRoot(document.getElementById('root')!).render(
 );
 ```
 
+Create `scripts/check-pet-build.mjs` as the build-output gate. It reads `dist/pet.html` only after `npm run build` and fails unless the document references a hashed `pet-*.js` module under `assets/`. Keeping this out of Vitest makes `npm run test:electron` independent of stale or absent generated output.
+
+```js
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+
+const petHtmlPath = resolve(import.meta.dirname, '..', 'dist', 'pet.html');
+const html = await readFile(petHtmlPath, 'utf8');
+
+if (!/<script type="module"[^>]+src="(?:\.\/|\/)assets\/pet-[^"]+\.js"/.test(html)) {
+  throw new Error('PET_BUILD_MODULE_MISSING');
+}
+```
+
 Create the Node test configuration:
 
 ```ts
@@ -311,10 +319,11 @@ Pop-Location
 
 ```powershell
 Push-Location "C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend"
-npm run build
-npm test -- --run src/desktop/electronSetup.test.ts
 npm run test:electron
 npm run typecheck
+npm run build
+npm run check:pet-build
+npm test -- --run src/desktop/electronSetup.test.ts
 Pop-Location
 ```
 
@@ -323,7 +332,7 @@ Expected: PASS; the build emits both chat and pet HTML entry bundles. No Electro
 - [ ] **Step 5: Commit the tooling boundary.**
 
 ```powershell
-git add "docs/superpowers/plans/2026-07-15-windows-electron-dual-window-shell.md" "frontend/package.json" "frontend/package-lock.json" "frontend/dev-origin.mjs" "frontend/vite.config.ts" "frontend/pet.html" "frontend/vite.electron-tests.config.ts" "frontend/src/desktop/electronSetup.test.ts" "frontend/src/pet/main.tsx"
+git add "docs/superpowers/plans/2026-07-15-windows-electron-dual-window-shell.md" "docs/superpowers/specs/2026-07-15-windows-electron-dual-window-shell-design.md" "frontend/package.json" "frontend/package-lock.json" "frontend/dev-origin.mjs" "frontend/vite.config.ts" "frontend/pet.html" "frontend/vite.electron-tests.config.ts" "frontend/src/desktop/electronSetup.test.ts" "frontend/src/pet/main.tsx" "frontend/scripts/check-pet-build.mjs"
 git commit -m "build: add pinned Electron development shell tooling"
 ```
 
@@ -604,6 +613,8 @@ git commit -m "feat: add read-only static pet renderer"
 - Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\runtime-config.mjs`
 - Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\security.mjs`
 - Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\security.test.ts`
+- Modify: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\vite.config.ts`
+- Modify: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\package.json`
 
 - [ ] **Step 1: Write security tests for exact origin parsing, CSP, and blocked outbound classes.**
 
@@ -612,6 +623,13 @@ it('accepts only the configured loopback Vite origin', () => {
   expect(() => parseRuntimeConfig({ VITE_DEV_ORIGIN: 'http://127.0.0.1:5173' })).not.toThrow();
   expect(() => parseRuntimeConfig({ VITE_DEV_ORIGIN: 'http://localhost:5173' })).toThrow('DESKTOP_INVALID_VITE_ORIGIN');
   expect(() => parseRuntimeConfig({ VITE_DEV_ORIGIN: 'http://127.0.0.1:5174' })).toThrow('DESKTOP_INVALID_VITE_ORIGIN');
+});
+
+it('rejects a missing, fixed, malformed, or mismatched development nonce', () => {
+  expect(() => parseRuntimeConfig({ VITE_DEV_ORIGIN: 'http://127.0.0.1:5173' })).toThrow('DESKTOP_INVALID_CSP_NONCE');
+  expect(() => parseRuntimeConfig({ VITE_DEV_ORIGIN: 'http://127.0.0.1:5173', DESKTOP_CSP_NONCE: 'ai-desktop-dev-shell' })).toThrow('DESKTOP_INVALID_CSP_NONCE');
+  const nonce = generateDevelopmentCspNonce();
+  expect(parseRuntimeConfig({ VITE_DEV_ORIGIN: 'http://127.0.0.1:5173', DESKTOP_CSP_NONCE: nonce }).cspNonce).toBe(nonce);
 });
 
 it('blocks external fetches but retains Vite HMR, same-origin proxy, blob audio, and pet assets', () => {
@@ -648,7 +666,7 @@ webPreferences: {
 }
 ```
 
-Import `DESKTOP_DEV_ORIGIN` / `DESKTOP_DEV_WS_ORIGIN` from `frontend/dev-origin.mjs`. `parseRuntimeConfig` accepts no different host or port: if `VITE_DEV_ORIGIN` is provided it must equal the shared `http://127.0.0.1:5173` value exactly; reject `localhost`, credentials, path, query, and fragment, and derive:
+Import `DESKTOP_DEV_ORIGIN` / `DESKTOP_DEV_WS_ORIGIN` from `frontend/dev-origin.mjs`. Generate one unpredictable nonce per combined Vite/Electron development launch (for example, 32 random bytes encoded as base64url), pass it to both processes through the required shared `DESKTOP_CSP_NONCE` environment variable, and reject missing, fixed known, malformed, or mismatched values. Vite reads the validated environment value and sets `html.cspNonce`; Electron `parseRuntimeConfig` accepts the same exact nonce and uses it in the response CSP. The nonce is never committed as a constant, persisted, or logged. The Task 4 security utilities generate and validate the nonce contract; launch orchestration must place that generated value in `DESKTOP_CSP_NONCE` before starting Vite and Electron so both processes receive one value for that launch. `parseRuntimeConfig` accepts no different host or port: if `VITE_DEV_ORIGIN` is provided it must equal the shared `http://127.0.0.1:5173` value exactly; reject `localhost`, credentials, path, query, and fragment, and derive:
 
 ```js
 {
@@ -664,7 +682,7 @@ Install response-header CSP through Electron session hooks. Record the actual Vi
 ```text
 Chat:
 default-src 'none';
-script-src 'self' 'nonce-ai-desktop-dev-shell';
+script-src 'self' 'nonce-<generated DESKTOP_CSP_NONCE>';
 style-src 'self' 'unsafe-inline';
 connect-src 'self' ws://127.0.0.1:5173;
 img-src 'self' pet-asset: data:;
@@ -673,7 +691,7 @@ frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'
 
 Pet:
 default-src 'none';
-script-src 'self' 'nonce-ai-desktop-dev-shell';
+script-src 'self' 'nonce-<generated DESKTOP_CSP_NONCE>';
 style-src 'self' 'unsafe-inline';
 img-src 'self' pet-asset: data:;
 connect-src ws://127.0.0.1:5173;
@@ -681,7 +699,7 @@ media-src 'none';
 frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'
 ```
 
-Generate both CSP strings from `runtimeConfig.viteOrigin`, `runtimeConfig.viteWebSocketOrigin`, and the shared `DESKTOP_CSP_NONCE`; the shown `5173`/nonce values are the default concrete result, not independent constants. Assert the Vite-served chat and pet HTML preamble/script tags carry this nonce and that Fast Refresh connects without CSP violations. Use `webContents.setWindowOpenHandler(() => ({ action: 'deny' }))`, prevent non-Vite navigation, prevent downloads, reject all permission requests for pet, and allow only chat `media` requests originating from the exact Vite chat origin. Do not use wildcard domains, aliases, arbitrary loopback ports, `unsafe-inline` for scripts, or permissive `*` CSP directives.
+Generate both CSP strings from `runtimeConfig.viteOrigin`, `runtimeConfig.viteWebSocketOrigin`, and the validated per-launch `runtimeConfig.cspNonce`; the shown `5173` value is the concrete fixed origin while the nonce placeholder must resolve to the unpredictable environment value for that launch. Assert the Vite-served chat and pet HTML preamble/script tags carry this nonce and that Fast Refresh connects without CSP violations. Use `webContents.setWindowOpenHandler(() => ({ action: 'deny' }))`, prevent non-Vite navigation, prevent downloads, reject all permission requests for pet, and allow only chat `media` requests originating from the exact Vite chat origin. Do not use wildcard domains, aliases, arbitrary loopback ports, `unsafe-inline` for scripts, or permissive `*` CSP directives.
 
 - [ ] **Step 4: Run security tests and a manual DevTools CSP inspection.**
 
@@ -697,7 +715,7 @@ Expected: PASS. During later headed smoke, verify no CSP console violations for 
 - [ ] **Step 5: Commit the security baseline.**
 
 ```powershell
-git add "frontend/electron/runtime-config.mjs" "frontend/electron/security.mjs" "frontend/electron/security.test.ts"
+git add "frontend/electron/runtime-config.mjs" "frontend/electron/security.mjs" "frontend/electron/security.test.ts" "frontend/vite.config.ts"
 git commit -m "feat: harden Electron renderer security boundary"
 ```
 
@@ -912,6 +930,8 @@ git commit -m "feat: add atomic authorized static asset storage"
 - Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\main.mjs`
 - Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\asset-scheme.mjs`
 - Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\asset-scheme.test.ts`
+- Modify: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\package.json`
+- Modify: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\src\desktop\electronSetup.test.ts`
 - Modify: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\main.mjs`
 
 - [ ] **Step 1: Write scheme resolution tests.**
@@ -923,6 +943,12 @@ it('rejects unsafe smoke userData overrides before readiness', () => {
   expect(() => parseSmokeUserDataOverride({ ELECTRON_USER_DATA_DIR: canonicalPath })).toThrow('DESKTOP_INVALID_USER_DATA_DIR');
   expect(() => parseSmokeUserDataOverride({ ELECTRON_SMOKE_RUN_ID: 'run-1', ELECTRON_USER_DATA_DIR: outsideRoot })).toThrow('DESKTOP_INVALID_USER_DATA_DIR');
   expect(parseSmokeUserDataOverride({ ELECTRON_SMOKE_RUN_ID: 'run-1', ELECTRON_USER_DATA_DIR: canonicalPath })).toBe(canonicalPath);
+});
+
+it('exposes the Electron development command only with the real main entry', async () => {
+  const pkg = JSON.parse(await readFile(resolve(frontendRoot, 'package.json'), 'utf8'));
+  await expect(access(resolve(frontendRoot, 'electron', 'main.mjs'))).resolves.toBeUndefined();
+  expect(pkg.scripts['desktop:dev']).toBe('electron electron/main.mjs');
 });
 
 it('serves only the active current asset URL at the active revision', async () => {
@@ -964,7 +990,7 @@ and `parseSmokeUserDataOverride(env)`, which accepts the override only when `ELE
 
 Create `desktop-application.mjs` as the Node-importable composition root; it statically imports no `electron` module and accepts an injected Electron facade. Vitest imports only this file and pure modules.
 
-Create `main.mjs` as an untested minimal Electron-runtime bootstrap: import Electron `app`/`protocol`, call the pure validator, apply `app.setPath` before readiness, register the privileged scheme, construct the facade, and call `createDesktopApplication(facade)`. Full composition behavior is completed in Task 12.
+Create `main.mjs` as an untested minimal Electron-runtime bootstrap: import Electron `app`/`protocol`, call the pure validator, apply `app.setPath` before readiness, register the privileged scheme, construct the facade, and call `createDesktopApplication(facade)`. Full composition behavior is completed in Task 12. In the same task add `"desktop:dev": "electron electron/main.mjs"` to `package.json` and replace Task 1's `desktop:dev` absence assertion with the scheme test above, so the command is exposed only when its real target exists.
 
 Call `protocol.registerSchemesAsPrivileged` before `app.whenReady()`:
 
@@ -1002,7 +1028,7 @@ Expected: PASS. Unknown URLs and stale revisions are rejected; missing manifest/
 - [ ] **Step 5: Commit the scheme boundary.**
 
 ```powershell
-git add "frontend/electron/bootstrap-config.mjs" "frontend/electron/bootstrap-config.test.ts" "frontend/electron/desktop-application.mjs" "frontend/electron/asset-scheme.mjs" "frontend/electron/asset-scheme.test.ts" "frontend/electron/main.mjs"
+git add "frontend/electron/bootstrap-config.mjs" "frontend/electron/bootstrap-config.test.ts" "frontend/electron/desktop-application.mjs" "frontend/electron/asset-scheme.mjs" "frontend/electron/asset-scheme.test.ts" "frontend/electron/main.mjs" "frontend/package.json" "frontend/src/desktop/electronSetup.test.ts"
 git commit -m "feat: serve active pet assets through fixed scheme"
 ```
 

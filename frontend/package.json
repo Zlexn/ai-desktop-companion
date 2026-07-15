@@ -13,8 +13,8 @@
     "measure:voice-turn": "node scripts/measure-voice-turn-latency.mjs",
     "prepare:vad-assets": "node scripts/copy-vad-assets.mjs",
     "desktop:renderer": "vite --host 127.0.0.1 --port 5173 --strictPort",
-    "desktop:dev": "electron electron/main.mjs",
     "test:electron": "vitest run --config vite.electron-tests.config.ts",
+    "check:pet-build": "node scripts/check-pet-build.mjs",
     "smoke:electron:windows": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ..\\scripts\\smoke_windows_electron_shell.ps1"
   },
   "dependencies": {

@@ -356,7 +356,7 @@ Interactive（默认） ↔ Click-through
 开发态 renderer 必须设置显式 CSP 和 Electron `webRequest`/导航策略，而不是只依赖 sandbox。Electron 与 Vite 共同读取一个规范化的 `http://127.0.0.1:<port>` origin；Vite 必须按同一 host/port 启动并启用 `strictPort`，不接受 `localhost` 别名或任意 loopback 端口。策略要求：
 
 - `default-src 'none'` 作为基线；
-- `script-src` 只允许 Vite 同源脚本和一个固定开发壳 nonce；Vite `html.cspNonce` 必须把同一 nonce 应用于 React Fast Refresh 注入的 module preamble 及生成脚本，CSP 使用匹配的 `'nonce-…'`。该 nonce 只用于 loopback 开发态且不替代外部请求封锁；禁止 `unsafe-inline` 和宽泛 `*`；
+- `script-src` 只允许 Vite 同源脚本和每次 Vite/Electron 联合开发启动新生成的不可预测 nonce；启动编排必须在两个进程启动前生成该值，并通过必需的共享环境变量 `DESKTOP_CSP_NONCE` 同时传入。Vite 验证后以 `html.cspNonce` 应用于 React Fast Refresh 注入的 module preamble 及生成脚本，Electron 验证相同值并在 CSP 使用匹配的 `'nonce-…'`。缺失、格式非法、固定已知值或两端不一致必须阻止启动；nonce 不得硬编码、持久化或记录日志。它只用于 loopback 开发态且不替代外部请求封锁；禁止 `unsafe-inline` 和宽泛 `*`；
 - `connect-src` 对 chat 只允许精确 Vite origin、由同一配置派生的精确 `ws://127.0.0.1:<port>` HMR origin，以及经 Vite 同源 proxy 访问的 `/api` 与 `/health`；pet 只额外允许同一个 HMR WebSocket，不允许 HTTP API 或其他网络连接；
 - `img-src` 只允许同源、`pet-asset:` 和必要的 `data:` fixture；
 - `media-src` 只允许同源与现有 TTS playback 所需的 `blob:`；

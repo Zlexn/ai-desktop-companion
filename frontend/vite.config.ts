@@ -2,7 +2,6 @@ import { resolve } from 'node:path';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
 import {
-  DESKTOP_CSP_NONCE,
   DESKTOP_DEV_HOST,
   DESKTOP_DEV_ORIGIN,
   DESKTOP_DEV_PORT,
@@ -14,7 +13,6 @@ const longProxyTimeoutMs = Number(process.env.BACKEND_PROXY_TIMEOUT_MS || 300_00
 
 export default defineConfig({
   plugins: [react()],
-  html: { cspNonce: DESKTOP_CSP_NONCE },
   build: {
     rollupOptions: {
       input: {

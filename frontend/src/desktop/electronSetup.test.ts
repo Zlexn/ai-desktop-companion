@@ -12,8 +12,9 @@ describe('Electron development shell setup', () => {
 
     expect(pkg.devDependencies.electron).toBe('43.1.1');
     expect(pkg.scripts['desktop:renderer']).toBe('vite --host 127.0.0.1 --port 5173 --strictPort');
-    expect(pkg.scripts['desktop:dev']).toBe('electron electron/main.mjs');
+    expect(pkg.scripts['desktop:dev']).toBeUndefined();
     expect(pkg.scripts['test:electron']).toContain('vite.electron-tests.config.ts');
+    expect(pkg.scripts['check:pet-build']).toBe('node scripts/check-pet-build.mjs');
   });
 
   it('has an independent executable pet renderer entry', async () => {
@@ -21,11 +22,5 @@ describe('Electron development shell setup', () => {
 
     expect(html).toContain('<script type="module" src="/src/pet/main.tsx"></script>');
     await expect(access(resolve(root, 'src', 'pet', 'main.tsx'))).resolves.toBeUndefined();
-  });
-
-  it('emits the pet renderer as a JavaScript module in the production build', async () => {
-    const html = await readFile(resolve(root, 'dist', 'pet.html'), 'utf8');
-
-    expect(html).toMatch(/<script type="module"[^>]+src="(?:\.\/|\/)assets\/pet-[^"]+\.js"/);
   });
 });
