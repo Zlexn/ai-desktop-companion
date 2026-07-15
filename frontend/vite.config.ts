@@ -12,22 +12,8 @@ const backendProxyTarget = process.env.BACKEND_PROXY_TARGET || 'http://127.0.0.1
 
 const longProxyTimeoutMs = Number(process.env.BACKEND_PROXY_TIMEOUT_MS || 300_000);
 
-const petRendererEntry = '/src/pet/main.tsx';
-const petRendererBuildPlaceholder = '\0pet-renderer-build-placeholder';
-
-const petRendererPlaceholderPlugin = {
-  name: 'pet-renderer-build-placeholder',
-  apply: 'build' as const,
-  resolveId(id: string) {
-    return id === petRendererEntry ? petRendererBuildPlaceholder : null;
-  },
-  load(id: string) {
-    return id === petRendererBuildPlaceholder ? '' : null;
-  },
-};
-
 export default defineConfig({
-  plugins: [react(), petRendererPlaceholderPlugin],
+  plugins: [react()],
   html: { cspNonce: DESKTOP_CSP_NONCE },
   build: {
     rollupOptions: {

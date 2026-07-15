@@ -139,6 +139,7 @@ It must not:
 - Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\dev-origin.mjs`
 - Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\src\desktop\electronSetup.test.ts`
 - Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\pet.html`
+- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\src\pet\main.tsx`
 - Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\vite.electron-tests.config.ts`
 - Modify: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\package.json`
 - Modify: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\package-lock.json`
@@ -147,7 +148,7 @@ It must not:
 - [ ] **Step 1: Add a failing configuration test that requires an exact Electron pin and pet HTML entry.**
 
 ```ts
-import { readFile } from 'node:fs/promises';
+import { access, readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -161,9 +162,15 @@ it('pins Electron 43.1.1 and exposes development shell scripts', async () => {
   expect(pkg.scripts['test:electron']).toContain('vite.electron-tests.config.ts');
 });
 
-it('has an independent pet renderer entry', async () => {
+it('has an independent executable pet renderer entry', async () => {
   const html = await readFile(resolve(root, 'pet.html'), 'utf8');
   expect(html).toContain('<script type="module" src="/src/pet/main.tsx"></script>');
+  await expect(access(resolve(root, 'src', 'pet', 'main.tsx'))).resolves.toBeUndefined();
+});
+
+it('emits the pet renderer as a JavaScript module in the production build', async () => {
+  const html = await readFile(resolve(root, 'dist', 'pet.html'), 'utf8');
+  expect(html).toMatch(/<script type="module"[^>]+src="(?:\.\/|\/)assets\/pet-[^"]+\.js"/);
 });
 ```
 
@@ -175,9 +182,9 @@ npm test -- --run src/desktop/electronSetup.test.ts
 Pop-Location
 ```
 
-Expected: FAIL because `electron` is not pinned and `pet.html` does not exist.
+Expected: FAIL because `electron` is not pinned, `pet.html` and `src/pet/main.tsx` do not exist, and no built pet JavaScript module is emitted.
 
-- [ ] **Step 3: Add the pinned dependency, scripts, entry page, and Vite multi-page configuration.**
+- [ ] **Step 3: Add the pinned dependency, scripts, entry page, minimal executable pet bootstrap, and Vite multi-page configuration.**
 
 Create `frontend/dev-origin.mjs` as the single configuration source:
 
@@ -261,6 +268,23 @@ Create `pet.html`:
 </html>
 ```
 
+Create `src/pet/main.tsx` as a real, minimal executable bootstrap. It mounts only a fixed neutral development placeholder; it must not import or implement `PetApp`, presentation state, bridge behavior, static asset rendering, or later-task functionality. Task 3 replaces this placeholder while retaining the entry module.
+
+```tsx
+import { StrictMode } from 'react';
+import { createRoot } from 'react-dom/client';
+
+function PetDevelopmentPlaceholder() {
+  return <div aria-label="桌宠开发占位">桌宠开发占位</div>;
+}
+
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <PetDevelopmentPlaceholder />
+  </StrictMode>,
+);
+```
+
 Create the Node test configuration:
 
 ```ts
@@ -269,7 +293,7 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     environment: 'node',
-    include: ['electron/**/*.test.ts'],
+    include: ['electron/**/*.test.ts', 'src/desktop/electronSetup.test.ts'],
     exclude: ['node_modules/**', 'dist/**'],
   },
 });
@@ -287,9 +311,10 @@ Pop-Location
 
 ```powershell
 Push-Location "C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend"
-npm test -- --run src/desktop/electronSetup.test.ts
-npm run typecheck
 npm run build
+npm test -- --run src/desktop/electronSetup.test.ts
+npm run test:electron
+npm run typecheck
 Pop-Location
 ```
 
@@ -298,7 +323,7 @@ Expected: PASS; the build emits both chat and pet HTML entry bundles. No Electro
 - [ ] **Step 5: Commit the tooling boundary.**
 
 ```powershell
-git add "frontend/package.json" "frontend/package-lock.json" "frontend/dev-origin.mjs" "frontend/vite.config.ts" "frontend/pet.html" "frontend/vite.electron-tests.config.ts" "frontend/src/desktop/electronSetup.test.ts"
+git add "docs/superpowers/plans/2026-07-15-windows-electron-dual-window-shell.md" "frontend/package.json" "frontend/package-lock.json" "frontend/dev-origin.mjs" "frontend/vite.config.ts" "frontend/pet.html" "frontend/vite.electron-tests.config.ts" "frontend/src/desktop/electronSetup.test.ts" "frontend/src/pet/main.tsx"
 git commit -m "build: add pinned Electron development shell tooling"
 ```
 
@@ -460,7 +485,7 @@ git commit -m "feat: define strict desktop presentation contract"
 - Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\src\pet\StaticImageRenderer.test.tsx`
 - Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\src\pet\PetApp.tsx`
 - Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\src\pet\PetApp.test.tsx`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\src\pet\main.tsx`
+- Modify: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\src\pet\main.tsx`
 - Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\src\pet\pet.css`
 
 - [ ] **Step 1: Write reducer tests for reset, stale epoch, stale sequence, and neutral fallback.**
@@ -506,9 +531,11 @@ npm test -- --run src/pet/presentationReducer.test.ts src/pet/StaticImageRendere
 Pop-Location
 ```
 
-Expected: FAIL because no pet renderer modules exist.
+Expected: FAIL because the reducer, `PetApp`, static renderer, and their tests do not yet exist; Task 1's fixed neutral `main.tsx` bootstrap contains no presentation behavior.
 
 - [ ] **Step 3: Implement renderer state and static rendering without business imports.**
+
+`main.tsx` must replace Task 1's fixed neutral development placeholder with a `PetApp` mount; it must remain only the renderer bootstrap and must not own presentation state or business behavior.
 
 The reducer must hold only the current validated snapshot and a `(projectionEpoch, sequence)` watermark. It must reset to this state:
 

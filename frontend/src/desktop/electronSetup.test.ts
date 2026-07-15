@@ -1,6 +1,6 @@
 /// <reference types="node" />
 
-import { readFile } from 'node:fs/promises';
+import { access, readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -16,9 +16,16 @@ describe('Electron development shell setup', () => {
     expect(pkg.scripts['test:electron']).toContain('vite.electron-tests.config.ts');
   });
 
-  it('has an independent pet renderer entry', async () => {
+  it('has an independent executable pet renderer entry', async () => {
     const html = await readFile(resolve(root, 'pet.html'), 'utf8');
 
     expect(html).toContain('<script type="module" src="/src/pet/main.tsx"></script>');
+    await expect(access(resolve(root, 'src', 'pet', 'main.tsx'))).resolves.toBeUndefined();
+  });
+
+  it('emits the pet renderer as a JavaScript module in the production build', async () => {
+    const html = await readFile(resolve(root, 'dist', 'pet.html'), 'utf8');
+
+    expect(html).toMatch(/<script type="module"[^>]+src="(?:\.\/|\/)assets\/pet-[^"]+\.js"/);
   });
 });
