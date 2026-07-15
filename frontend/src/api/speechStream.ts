@@ -62,12 +62,16 @@ function parseEvent(line: string): SpeechStreamEvent {
   return { type: 'error', message: '语音流返回了未知事件。' };
 }
 
-export async function* streamSpeech(text: string, options: SynthesizeSpeechOptions = {}): AsyncGenerator<SpeechStreamEvent> {
-  const response = await fetch('/api/audio/speech/stream', {
+async function* streamSpeechRequest(
+  path: string,
+  body: Record<string, unknown>,
+  signal?: AbortSignal,
+): AsyncGenerator<SpeechStreamEvent> {
+  const response = await fetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text, voice_id: options.voiceId, speed: options.speed }),
-    signal: options.signal,
+    body: JSON.stringify(body),
+    signal,
   });
 
   if (!response.ok) {
@@ -96,4 +100,26 @@ export async function* streamSpeech(text: string, options: SynthesizeSpeechOptio
   } finally {
     reader.releaseLock();
   }
+}
+
+export async function* streamSpeech(
+  text: string,
+  options: SynthesizeSpeechOptions = {},
+): AsyncGenerator<SpeechStreamEvent> {
+  yield* streamSpeechRequest(
+    '/api/audio/speech/stream',
+    { text, voice_id: options.voiceId, speed: options.speed },
+    options.signal,
+  );
+}
+
+export async function* streamMessageSpeech(
+  assistantMessageId: string,
+  options: SynthesizeSpeechOptions = {},
+): AsyncGenerator<SpeechStreamEvent> {
+  yield* streamSpeechRequest(
+    `/api/messages/${encodeURIComponent(assistantMessageId)}/speech/stream`,
+    { voice_id: options.voiceId, speed: options.speed },
+    options.signal,
+  );
 }

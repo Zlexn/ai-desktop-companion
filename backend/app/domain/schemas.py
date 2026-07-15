@@ -1,7 +1,7 @@
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.domain.models import MemoryType
 
@@ -36,6 +36,22 @@ class SynthesizeSpeechRequest(BaseModel):
     speed: float | None = None
 
 
+class MessageBoundSynthesizeSpeechRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    voice_id: str | None = None
+    speed: float | None = None
+
+
+class MessageExpressionResponse(BaseModel):
+    assistant_message_id: str
+    schema_version: Literal[1]
+    delivery: Literal["neutral", "warm", "reassuring", "reserved", "firm"]
+    intensity: Literal["low", "medium"]
+    rate: float = Field(ge=0.90, le=1.10)
+    source: Literal["persisted_plan", "default"]
+
+
 class ChatMetadata(BaseModel):
     provider: str
     model: str
@@ -44,6 +60,7 @@ class ChatMetadata(BaseModel):
 class ChatResponse(BaseModel):
     reply: str
     metadata: ChatMetadata
+    assistant_message_id: str
 
 
 class ErrorDetail(BaseModel):
@@ -120,4 +137,76 @@ class MemoryAuditEventResponse(BaseModel):
     related_memory_ids: list[str]
     operation: str
     metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+
+
+class EmotionVectorResponse(BaseModel):
+    mood: float
+    trust: float
+    concern: float
+    distance: float
+    irritation: float
+    formality: float
+
+
+class EmotionStateResponse(BaseModel):
+    scope_id: str
+    enabled: bool
+    vector: EmotionVectorResponse
+    version: int
+    updated_at: datetime
+
+
+class EmotionEventResponse(BaseModel):
+    id: str
+    event_type: str
+    before: EmotionVectorResponse
+    after: EmotionVectorResponse
+    applied_delta: EmotionVectorResponse
+    reason_codes: list[str]
+    source_session_id: str | None
+    source_user_message_id: str | None
+    source_assistant_message_id: str | None
+    engine: str
+    rule_version: str
+    created_at: datetime
+
+
+class UpdateEmotionSettingsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool
+
+
+class UpdateEmotionAnalysisConsentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    action: Literal["grant", "decline", "revoke"]
+    disclosure_version: Literal["emotion-analysis-disclosure-v1"]
+
+
+class EmotionAnalysisConsentResponse(BaseModel):
+    scope_id: str
+    status: str
+    disclosure_version: str | None
+    provider: str | None
+    deployment_provider: str
+    deployment_enabled: bool
+    updated_at: datetime
+
+
+class EmotionAnalysisAuditResponse(BaseModel):
+    id: str
+    job_id: str
+    outcome: str
+    source_session_id: str
+    source_user_message_id: str
+    source_assistant_message_id: str
+    schema_version: str
+    provider: str
+    model: str
+    message_count: int
+    memory_count: int
+    input_characters: int
+    redaction_count: int
+    elapsed_ms: int
+    reason_code: str
     created_at: datetime

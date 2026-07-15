@@ -1,9 +1,13 @@
-import type { CreateMemoryRequest, MemoryRecord, Message, Session, UpdateMemoryRequest } from '../api/types';
+import type { CreateMemoryRequest, EmotionAnalysisAudit, EmotionAnalysisConsent, EmotionAnalysisConsentAction, EmotionEvent, EmotionState, MemoryRecord, Message, Session, UpdateMemoryRequest } from '../api/types';
+import type { ExpressionPreviewState } from '../expression/previewReducer';
 import type { UseAudioInputDevicesResult } from '../hooks/useAudioInputDevices';
 import type { UseAudioOutputDevicesResult } from '../hooks/useAudioOutputDevices';
 import type { useAudioPlaybackController } from '../hooks/useAudioPlaybackController';
 import type { UseManualAudioRecorderResult } from '../hooks/useManualAudioRecorder';
 import { ErrorBanner } from './ErrorBanner';
+import { ExpressionPreview } from './ExpressionPreview';
+import { PresentationErrorBoundary } from './PresentationErrorBoundary';
+import { EmotionPanel } from './EmotionPanel';
 import { MemoryPanel } from './MemoryPanel';
 import { MessageInput } from './MessageInput';
 import { MessageList } from './MessageList';
@@ -16,6 +20,8 @@ interface ChatLayoutProps {
   messages: Message[];
   loading: boolean;
   error: string | null;
+  expressionPreviewState: ExpressionPreviewState;
+  expressionPreviewLabel: string;
   audioController: ReturnType<typeof useAudioPlaybackController>;
   audioInputDevices: UseAudioInputDevicesResult;
   audioOutputDevices: UseAudioOutputDevicesResult;
@@ -37,6 +43,19 @@ interface ChatLayoutProps {
   memoryLoading: boolean;
   memoryError: string | null;
   memoryConflicts: MemoryRecord[];
+  emotionState: EmotionState | null;
+  emotionEvents: EmotionEvent[];
+  emotionLoading: boolean;
+  emotionError: string | null;
+  emotionAnalysisConsent: EmotionAnalysisConsent | null;
+  emotionAnalysisAudits: EmotionAnalysisAudit[];
+  emotionAnalysisConsentLoading: boolean;
+  emotionAnalysisAuditLoading: boolean;
+  onSetEmotionEnabled: (enabled: boolean) => Promise<void>;
+  onResetEmotion: () => Promise<void>;
+  onRetryEmotion: () => Promise<void>;
+  onUpdateEmotionAnalysisConsent: (action: EmotionAnalysisConsentAction) => Promise<void>;
+  onRefreshEmotionAnalysisAudits: () => Promise<void>;
   onCreateMemory: (request: CreateMemoryRequest) => Promise<void>;
   onUpdateMemory: (memoryId: string, request: UpdateMemoryRequest) => Promise<void>;
   onDeleteMemory: (memoryId: string) => Promise<void>;
@@ -52,6 +71,8 @@ export function ChatLayout({
   messages,
   loading,
   error,
+  expressionPreviewState,
+  expressionPreviewLabel,
   audioController,
   audioInputDevices,
   audioOutputDevices,
@@ -73,6 +94,19 @@ export function ChatLayout({
   memoryLoading,
   memoryError,
   memoryConflicts,
+  emotionState,
+  emotionEvents,
+  emotionLoading,
+  emotionError,
+  emotionAnalysisConsent,
+  emotionAnalysisAudits,
+  emotionAnalysisConsentLoading,
+  emotionAnalysisAuditLoading,
+  onSetEmotionEnabled,
+  onResetEmotion,
+  onRetryEmotion,
+  onUpdateEmotionAnalysisConsent,
+  onRefreshEmotionAnalysisAudits,
   onCreateMemory,
   onUpdateMemory,
   onDeleteMemory,
@@ -98,6 +132,27 @@ export function ChatLayout({
           {loading ? <span className="loading">处理中……</span> : null}
         </header>
         <ErrorBanner message={error} onDismiss={onDismissError} />
+        <PresentationErrorBoundary>
+          <ExpressionPreview
+            state={expressionPreviewState}
+            displayLabel={expressionPreviewLabel}
+          />
+        </PresentationErrorBoundary>
+        <EmotionPanel
+          state={emotionState}
+          events={emotionEvents}
+          loading={emotionLoading}
+          error={emotionError}
+          onSetEnabled={onSetEmotionEnabled}
+          onReset={onResetEmotion}
+          onRetry={onRetryEmotion}
+          analysisConsent={emotionAnalysisConsent}
+          analysisAudits={emotionAnalysisAudits}
+          analysisConsentLoading={emotionAnalysisConsentLoading}
+          analysisAuditLoading={emotionAnalysisAuditLoading}
+          onUpdateAnalysisConsent={onUpdateEmotionAnalysisConsent}
+          onRefreshAnalysisAudits={onRefreshEmotionAnalysisAudits}
+        />
         <MemoryPanel
           memories={memories}
           candidates={memoryCandidates}

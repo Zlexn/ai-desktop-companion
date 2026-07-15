@@ -27,6 +27,48 @@ describe('apiClient', () => {
     await expect(apiClient.sendMessage('s1', '你好')).rejects.toThrow('模型服务响应超时，请稍后重试。');
   });
 
+  it('gets and validates a message-bound expression with the provided signal', async () => {
+    const signal = new AbortController().signal;
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({
+        assistant_message_id: 'assistant / 1',
+        schema_version: 1,
+        delivery: 'warm',
+        intensity: 'medium',
+        rate: 1.04,
+        source: 'persisted_plan',
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
+    );
+
+    await expect(
+      apiClient.getMessageExpression('assistant / 1', { signal }),
+    ).resolves.toMatchObject({
+      assistant_message_id: 'assistant / 1',
+      source: 'persisted_plan',
+    });
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/messages/assistant%20%2F%201/expression',
+      expect.objectContaining({ signal }),
+    );
+  });
+
+  it('rejects malformed expression JSON at the network boundary', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({
+        assistant_message_id: 'assistant-1',
+        schema_version: 1,
+        delivery: 'unknown',
+        intensity: 'low',
+        rate: 1,
+        source: 'default',
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } }),
+    );
+
+    await expect(apiClient.getMessageExpression('assistant-1')).rejects.toThrow(
+      '表达服务返回了无法处理的结果。',
+    );
+  });
+
   it('synthesizes speech as binary audio with metadata headers', async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       new Response(new Uint8Array([82, 73, 70, 70]), {
@@ -49,6 +91,48 @@ describe('apiClient', () => {
     expect(result.durationMs).toBe(240);
     expect(result.sampleRate).toBe(16000);
     expect(fetch).toHaveBeenCalledWith('/api/audio/speech', expect.objectContaining({ method: 'POST' }));
+  });
+
+  it('synthesizes persisted assistant speech without client text or expression options', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(new Uint8Array([82, 73, 70, 70]), {
+        status: 200,
+        headers: { 'Content-Type': 'audio/wav', 'X-TTS-Provider': 'fake' },
+      }),
+    );
+    const controller = new AbortController();
+
+    const result = await apiClient.synthesizeMessageSpeech('assistant/42', {
+      voiceId: 'fake-default',
+      speed: 1.04,
+      signal: controller.signal,
+    });
+
+    expect(result.blob.type).toBe('audio/wav');
+    expect(result.provider).toBe('fake');
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/messages/assistant%2F42/speech',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ voice_id: 'fake-default', speed: 1.04 }),
+        signal: controller.signal,
+      }),
+    );
+    const [, init] = vi.mocked(fetch).mock.calls[0];
+    expect(String(init?.body)).not.toContain('text');
+    expect(String(init?.body)).not.toContain('delivery');
+    expect(String(init?.body)).not.toContain('signal');
+  });
+
+  it('omits undefined message speech options and maps API errors', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(new Response(new Uint8Array([82, 73, 70, 70]), { status: 200, headers: { 'Content-Type': 'audio/wav' } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: '消息语音不可用。' } }), { status: 502 }));
+
+    await apiClient.synthesizeMessageSpeech('a1');
+    await expect(apiClient.synthesizeMessageSpeech('a1')).rejects.toThrow('消息语音不可用。');
+
+    expect(vi.mocked(fetch).mock.calls[0][1]?.body).toBe('{}');
   });
 
   it('rejects unsupported speech content types', async () => {

@@ -11,7 +11,7 @@ from app.core.errors import ASRContentTypeMissingError, ASRFileMissingError, ASR
 from app.domain.schemas import SynthesizeSpeechRequest, TranscriptionResponse
 from app.services.asr_service import ASRService
 from app.services.tts_service import TTSService
-from app.tts.base import SpeechSynthesisSegment
+from app.tts.base import SpeechSynthesisResult, SpeechSynthesisSegment
 
 router = APIRouter(prefix="/api/audio", tags=["audio"])
 
@@ -31,11 +31,26 @@ def _segment_event(segment: SpeechSynthesisSegment) -> dict[str, object]:
     }
 
 
-async def _speech_stream_events(tts_service: TTSService, request: SynthesizeSpeechRequest) -> AsyncIterator[bytes]:
+def speech_response(result: SpeechSynthesisResult) -> Response:
+    return Response(
+        content=result.audio_bytes,
+        media_type=result.media_type,
+        headers={
+            "X-TTS-Provider": result.provider,
+            "X-TTS-Model": result.model,
+            "X-Audio-Duration-Ms": str(result.duration_ms),
+            "X-Audio-Sample-Rate": str(result.sample_rate),
+        },
+    )
+
+
+async def speech_stream_events(
+    segments: AsyncIterator[SpeechSynthesisSegment],
+) -> AsyncIterator[bytes]:
     started = False
     count = 0
     try:
-        async for segment in tts_service.synthesize_stream(request.text, request.voice_id, request.speed):
+        async for segment in segments:
             if not started:
                 yield _ndjson_event({"type": "start", "provider": segment.provider, "model": segment.model})
                 started = True
@@ -45,10 +60,10 @@ async def _speech_stream_events(tts_service: TTSService, request: SynthesizeSpee
             yield _ndjson_event({"type": "error", "message": "语音合成服务没有返回可播放音频。"})
             return
         yield _ndjson_event({"type": "done", "segment_count": count})
-    except TTSError as exc:
+    except TTSError:
         if not started:
             raise
-        yield _ndjson_event({"type": "error", "message": str(exc) or "语音合成失败，请稍后重试。"})
+        yield _ndjson_event({"type": "error", "message": "语音合成失败，请稍后重试。"})
 
 
 async def _transcription_stream_events(
@@ -110,16 +125,7 @@ async def synthesize_speech(
     tts_service: TTSService = Depends(get_tts_service),
 ) -> Response:
     result = await tts_service.synthesize(request.text, request.voice_id, request.speed)
-    return Response(
-        content=result.audio_bytes,
-        media_type=result.media_type,
-        headers={
-            "X-TTS-Provider": result.provider,
-            "X-TTS-Model": result.model,
-            "X-Audio-Duration-Ms": str(result.duration_ms),
-            "X-Audio-Sample-Rate": str(result.sample_rate),
-        },
-    )
+    return speech_response(result)
 
 
 @router.post("/speech/stream")
@@ -127,7 +133,9 @@ async def synthesize_speech_stream(
     request: SynthesizeSpeechRequest,
     tts_service: TTSService = Depends(get_tts_service),
 ) -> StreamingResponse:
-    iterator = _speech_stream_events(tts_service, request)
+    iterator = speech_stream_events(
+        tts_service.synthesize_stream(request.text, request.voice_id, request.speed)
+    )
     first = await anext(iterator)
 
     async def body() -> AsyncIterator[bytes]:

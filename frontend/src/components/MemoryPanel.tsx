@@ -10,6 +10,11 @@ const MEMORY_TYPE_OPTIONS: Array<{ value: MemoryType; label: string }> = [
   { value: 'other', label: '其他' },
 ];
 
+export function numberDraftFromInput(input: HTMLInputElement): number | '' {
+  if (input.value === '') return '';
+  return Number.isFinite(input.valueAsNumber) ? input.valueAsNumber : '';
+}
+
 interface MemoryPanelProps {
   memories: MemoryRecord[];
   candidates: MemoryRecord[];
@@ -30,12 +35,62 @@ export function MemoryPanel({
   error,
   conflicts,
   onCreate,
+  onUpdate,
   onDelete,
   onConfirmCandidate,
   onDismissCandidate,
 }: MemoryPanelProps) {
   const [content, setContent] = useState('');
   const [memoryType, setMemoryType] = useState<MemoryType>('preference');
+  const [editingMemoryId, setEditingMemoryId] = useState<string | null>(null);
+  const [editContent, setEditContent] = useState('');
+  const [editMemoryType, setEditMemoryType] = useState<MemoryType>('preference');
+  const [editImportance, setEditImportance] = useState<number | ''>(3);
+  const [editConfidence, setEditConfidence] = useState<number | ''>(1);
+  const [isUpdating, setIsUpdating] = useState(false);
+
+  const canSaveEdit = editContent.trim().length > 0
+    && typeof editImportance === 'number'
+    && Number.isInteger(editImportance)
+    && editImportance >= 1
+    && editImportance <= 5
+    && typeof editConfidence === 'number'
+    && Number.isFinite(editConfidence)
+    && editConfidence >= 0
+    && editConfidence <= 1;
+
+  function startEditing(memory: MemoryRecord) {
+    setEditingMemoryId(memory.id);
+    setEditContent(memory.content);
+    setEditMemoryType(memory.memory_type);
+    setEditImportance(memory.importance);
+    setEditConfidence(memory.confidence);
+  }
+
+  function cancelEditing() {
+    setEditingMemoryId(null);
+  }
+
+  async function handleUpdate(memoryId: string) {
+    const cleanContent = editContent.trim();
+    if (!canSaveEdit) return;
+    if (typeof editImportance !== 'number' || typeof editConfidence !== 'number') return;
+
+    setIsUpdating(true);
+    try {
+      await onUpdate(memoryId, {
+        content: cleanContent,
+        memory_type: editMemoryType,
+        importance: editImportance,
+        confidence: editConfidence,
+      });
+      setEditingMemoryId(null);
+    } catch {
+      // The parent displays the shared error; keep the draft open for retry.
+    } finally {
+      setIsUpdating(false);
+    }
+  }
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -99,9 +154,41 @@ export function MemoryPanel({
       <ul className="memory-panel__list">
         {memories.map((memory) => (
           <li key={memory.id} className="memory-panel__item">
-            <p>{memory.content}</p>
-            <small>{memory.memory_type} · importance {memory.importance} · confidence {memory.confidence.toFixed(2)}</small>
-            <button type="button" onClick={() => void onDelete(memory.id)}>删除记忆</button>
+            {editingMemoryId === memory.id ? (
+              <div className="memory-panel__form">
+                <label>
+                  编辑记忆内容
+                  <textarea value={editContent} onChange={(event) => setEditContent(event.target.value)} maxLength={1000} />
+                </label>
+                <label>
+                  编辑记忆类型
+                  <select value={editMemoryType} onChange={(event) => setEditMemoryType(event.target.value as MemoryType)}>
+                    {MEMORY_TYPE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  </select>
+                </label>
+                <label>
+                  编辑重要度
+                  <input type="number" min={1} max={5} step={1} value={editImportance} onChange={(event) => setEditImportance(numberDraftFromInput(event.currentTarget))} />
+                </label>
+                <label>
+                  编辑可信度
+                  <input type="number" min={0} max={1} step={0.05} value={editConfidence} onChange={(event) => setEditConfidence(numberDraftFromInput(event.currentTarget))} />
+                </label>
+                <div className="memory-panel__actions">
+                  <button type="button" disabled={!canSaveEdit || isUpdating} onClick={() => void handleUpdate(memory.id)}>保存修改</button>
+                  <button type="button" onClick={cancelEditing}>取消编辑</button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <p>{memory.content}</p>
+                <small>{memory.memory_type} · importance {memory.importance} · confidence {memory.confidence.toFixed(2)}</small>
+                <div className="memory-panel__actions">
+                  <button type="button" disabled={loading} onClick={() => startEditing(memory)}>编辑记忆</button>
+                  <button type="button" disabled={loading} onClick={() => void onDelete(memory.id)}>删除记忆</button>
+                </div>
+              </>
+            )}
           </li>
         ))}
       </ul>

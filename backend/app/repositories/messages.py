@@ -75,13 +75,24 @@ class MessageRepository:
         self._connection.commit()
         return message
 
+    def get(self, message_id: str) -> Message | None:
+        row = self._connection.execute(
+            """
+            SELECT id, session_id, role, content, metadata_json, created_at
+            FROM messages
+            WHERE id = ?
+            """,
+            (message_id,),
+        ).fetchone()
+        return _row_to_message(row) if row else None
+
     def list(self, session_id: str) -> list[Message]:
         rows = self._connection.execute(
             """
             SELECT id, session_id, role, content, metadata_json, created_at
             FROM messages
             WHERE session_id = ?
-            ORDER BY created_at ASC
+            ORDER BY created_at ASC, rowid ASC
             """,
             (session_id,),
         ).fetchall()
@@ -93,7 +104,7 @@ class MessageRepository:
             SELECT id, session_id, role, content, metadata_json, created_at
             FROM messages
             WHERE session_id = ?
-            ORDER BY created_at DESC
+            ORDER BY created_at DESC, rowid DESC
             LIMIT ?
             """,
             (session_id, limit),

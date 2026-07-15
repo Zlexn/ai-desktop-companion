@@ -18,6 +18,9 @@ class AnthropicProvider:
         self._api_key = api_key
         self._client = anthropic.AsyncAnthropic(api_key=api_key)
 
+    async def aclose(self) -> None:
+        await self._client.close()
+
     async def generate(self, messages: list[LLMMessage], options: LLMOptions) -> LLMResponse:
         system_messages = [message.content for message in messages if message.role == ChatRole.SYSTEM]
         conversation = [

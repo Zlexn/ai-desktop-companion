@@ -38,6 +38,18 @@ class ValidationAppError(AppError):
     status_code = HTTPStatus.BAD_REQUEST
 
 
+class ExpressionMessageRoleError(AppError):
+    code = "expression_message_not_assistant"
+    message = "只能查询助手消息的表达。"
+    status_code = HTTPStatus.UNPROCESSABLE_ENTITY
+
+
+class InternalServerError(AppError):
+    code = "internal_error"
+    message = "请求处理失败，请稍后重试。"
+    status_code = HTTPStatus.INTERNAL_SERVER_ERROR
+
+
 class ProviderError(AppError):
     code = "provider_error"
     message = "模型服务暂时不可用，请稍后重试。"

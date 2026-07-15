@@ -282,6 +282,64 @@ button:disabled {
   padding: 0.35rem 0.55rem;
 }
 
+.expression-preview {
+  align-items: center;
+  background: #fffaf2;
+  border: 1px solid #cdbdaa;
+  border-radius: 16px;
+  display: grid;
+  gap: 0.65rem 1rem;
+  grid-template-columns: auto 1fr;
+  margin-top: 1rem;
+  padding: 0.9rem 1rem;
+}
+
+.expression-preview__avatar {
+  align-items: center;
+  background: #d8dfcc;
+  border: 2px solid #6d7f52;
+  border-radius: 50%;
+  display: flex;
+  height: 52px;
+  justify-content: center;
+  width: 52px;
+}
+
+.expression-preview__avatar span {
+  background: #6d7f52;
+  border-radius: 50%;
+  height: 18px;
+  width: 18px;
+}
+
+.expression-preview__status {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.expression-preview__label,
+.expression-preview small {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.expression-preview--firm {
+  border-color: #8f5d46;
+}
+
+.expression-preview--reserved {
+  opacity: 0.9;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .expression-preview,
+  .expression-preview * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
 .empty-state {
   color: #7b6a5d;
 }

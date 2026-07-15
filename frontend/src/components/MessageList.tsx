@@ -23,8 +23,8 @@ export function MessageList({ messages, audioController, playbackBlocked }: Mess
             <AssistantAudioControls
               audioState={audioController.stateFor(message.id)}
               onPause={() => audioController.pause(message.id)}
-              onPlay={() => audioController.play(message.id, message.content)}
-              onReplay={() => audioController.replay(message.id, message.content)}
+              onPlay={() => audioController.play(message.id)}
+              onReplay={() => audioController.replay(message.id)}
               onResume={() => audioController.resume(message.id)}
               onStop={() => audioController.stop(message.id)}
               disabled={playbackBlocked}

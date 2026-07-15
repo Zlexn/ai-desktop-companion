@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
@@ -26,6 +26,20 @@ vi.mock('./voiceActivity/createSileroVad', () => ({
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+}
+
+function expressionResponse(
+  assistantMessageId: string,
+  delivery: 'neutral' | 'warm' | 'reassuring' | 'reserved' | 'firm' = 'neutral',
+): Response {
+  return jsonResponse({
+    assistant_message_id: assistantMessageId,
+    schema_version: 1,
+    delivery,
+    intensity: 'low',
+    rate: 1,
+    source: 'persisted_plan',
+  });
 }
 
 function wavResponse(): Response {
@@ -107,7 +121,7 @@ describe('App', () => {
       .mockResolvedValueOnce(jsonResponse([]))
       .mockResolvedValueOnce(jsonResponse({ id: 's1', title: '新会话', created_at: '', updated_at: '' }, 201))
       .mockResolvedValueOnce(jsonResponse([]))
-      .mockResolvedValueOnce(jsonResponse({ reply: '我听见了：你好。', metadata: { provider: 'fake', model: 'test' } }))
+      .mockResolvedValueOnce(jsonResponse({ reply: '我听见了：你好。', metadata: { provider: 'fake', model: 'test' }, assistant_message_id: 'assistant-response' }))
       .mockResolvedValueOnce(jsonResponse([{ id: 's1', title: '新会话', created_at: '', updated_at: '' }]))
       .mockResolvedValueOnce(jsonResponse([
         { id: 'm1', session_id: 's1', role: 'user', content: '你好', created_at: '', metadata: {} },
@@ -157,6 +171,40 @@ describe('App', () => {
 
     expect(await screen.findByText('用户正在构建本地 AI 桌宠。')).toBeInTheDocument();
     expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input) === '/api/memories')).toBe(true);
+  });
+
+  it('keeps a memory edit open when the update request fails', async () => {
+    vi.stubEnv('VITE_ENABLE_MEMORY_LOAD_IN_TEST', '1');
+    const existingMemory = {
+      id: 'mem-existing',
+      content: '用户偏好中文回复。',
+      memory_type: 'preference',
+      source: 'manual',
+      source_session_id: null,
+      importance: 3,
+      confidence: 1,
+      status: 'active',
+      created_at: '2026-07-06T00:00:00Z',
+      updated_at: '2026-07-06T00:00:00Z',
+      metadata: {},
+    };
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse([]))
+      .mockResolvedValueOnce(jsonResponse([existingMemory]))
+      .mockResolvedValueOnce(jsonResponse([]))
+      .mockResolvedValueOnce(jsonResponse({ error: { message: '更新失败' } }, 500));
+
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByText(existingMemory.content);
+    await user.click(screen.getByRole('button', { name: '编辑记忆' }));
+    const contentInput = screen.getByLabelText('编辑记忆内容');
+    await user.clear(contentInput);
+    await user.type(contentInput, '修改后的草稿');
+    await user.click(screen.getByRole('button', { name: '保存修改' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('更新失败');
+    expect(screen.getByLabelText('编辑记忆内容')).toHaveValue('修改后的草稿');
   });
 
   it('loads pending memory candidates on startup when memory loading is enabled', async () => {
@@ -585,15 +633,16 @@ describe('App', () => {
         { id: 'old-u', session_id: 's1', role: 'user', content: '旧消息', created_at: '1', metadata: {} },
         { id: 'old-a', session_id: 's1', role: 'assistant', content: '旧回复', created_at: '2', metadata: {} },
       ]))
+      .mockResolvedValueOnce(expressionResponse('old-a'))
       .mockResolvedValueOnce(transcriptionStreamResponse('语音转写文本'))
-      .mockResolvedValueOnce(jsonResponse({ reply: '语音回合回复', metadata: { provider: 'fake', model: 'test' } }))
+      .mockResolvedValueOnce(jsonResponse({ reply: '语音回合回复', metadata: { provider: 'fake', model: 'test' }, assistant_message_id: 'voice-a' }))
       .mockResolvedValueOnce(jsonResponse([{ id: 's1', title: '新会话', created_at: '', updated_at: '3' }]))
       .mockResolvedValueOnce(jsonResponse([
-        { id: 'old-u', session_id: 's1', role: 'user', content: '旧消息', created_at: '1', metadata: {} },
-        { id: 'old-a', session_id: 's1', role: 'assistant', content: '旧回复', created_at: '2', metadata: {} },
         { id: 'new-u', session_id: 's1', role: 'user', content: '语音转写文本', created_at: '3', metadata: {} },
-        { id: 'new-a', session_id: 's1', role: 'assistant', content: '语音回合回复', created_at: '4', metadata: {} },
+        { id: 'competing-a', session_id: 's1', role: 'assistant', content: '语音回合回复', created_at: '3.5', metadata: {} },
+        { id: 'voice-a', session_id: 's1', role: 'assistant', content: '语音回合回复', created_at: '4', metadata: {} },
       ]))
+      .mockResolvedValueOnce(expressionResponse('voice-a', 'warm'))
       .mockResolvedValueOnce(speechStreamResponse());
 
     render(<App />);
@@ -602,10 +651,13 @@ describe('App', () => {
     await user.click(await screen.findByRole('button', { name: '停止录音' }));
     await user.click(await screen.findByRole('button', { name: '发送并朗读' }));
 
-    await waitFor(() => expect(screen.getByText('语音回合回复')).toBeInTheDocument());
+    await waitFor(() => {
+      const messageList = screen.getByRole('generic', { name: '消息列表' });
+      expect(within(messageList).getAllByText('语音回合回复')).toHaveLength(2);
+    });
     await waitFor(() => expect(playMock).toHaveBeenCalledTimes(1));
-    expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input) === '/api/audio/speech/stream')).toBe(true);
-    expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input) === '/api/audio/speech')).toBe(false);
+    expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input) === '/api/messages/voice-a/speech/stream')).toBe(true);
+    expect(vi.mocked(fetch).mock.calls.some(([input]) => String(input) === '/api/messages/competing-a/speech/stream')).toBe(false);
   });
 
   it('allows recording to explicitly interrupt assistant audio synthesis', async () => {
@@ -639,6 +691,7 @@ describe('App', () => {
       .mockResolvedValueOnce(jsonResponse([
         { id: 'a1', session_id: 's1', role: 'assistant', content: '可播放回复', created_at: '1', metadata: {} },
       ]))
+      .mockResolvedValueOnce(expressionResponse('a1'))
       .mockReturnValueOnce(new Promise<Response>((resolve) => { resolveSpeech = resolve; }));
 
     render(<App />);
@@ -728,7 +781,7 @@ describe('App', () => {
       .mockResolvedValueOnce(jsonResponse([{ id: 's1', title: '新会话', created_at: '', updated_at: '' }]))
       .mockResolvedValueOnce(jsonResponse([]))
       .mockResolvedValueOnce(transcriptionStreamResponse('语音转写文本'))
-      .mockResolvedValueOnce(jsonResponse({ reply: '文字回复已经生成', metadata: { provider: 'fake', model: 'test' } }))
+      .mockResolvedValueOnce(jsonResponse({ reply: '文字回复已经生成', metadata: { provider: 'fake', model: 'test' }, assistant_message_id: 'assistant-response' }))
       .mockResolvedValueOnce(jsonResponse([{ id: 's1', title: '新会话', created_at: '', updated_at: '3' }]))
       .mockResolvedValueOnce(jsonResponse([
         { id: 'u1', session_id: 's1', role: 'user', content: '语音转写文本', created_at: '1', metadata: {} },
@@ -776,12 +829,13 @@ describe('App', () => {
       .mockResolvedValueOnce(jsonResponse([{ id: 's1', title: '新会话', created_at: '', updated_at: '' }]))
       .mockResolvedValueOnce(jsonResponse([]))
       .mockResolvedValueOnce(transcriptionStreamResponse('第一轮语音'))
-      .mockResolvedValueOnce(jsonResponse({ reply: '第一轮回复', metadata: { provider: 'fake', model: 'test' } }))
+      .mockResolvedValueOnce(jsonResponse({ reply: '第一轮回复', metadata: { provider: 'fake', model: 'test' }, assistant_message_id: 'assistant-response' }))
       .mockResolvedValueOnce(jsonResponse([{ id: 's1', title: '新会话', created_at: '', updated_at: '3' }]))
       .mockResolvedValueOnce(jsonResponse([
         { id: 'u1', session_id: 's1', role: 'user', content: '第一轮语音', created_at: '1', metadata: {} },
-        { id: 'a1', session_id: 's1', role: 'assistant', content: '第一轮回复', created_at: '2', metadata: {} },
+        { id: 'assistant-response', session_id: 's1', role: 'assistant', content: '第一轮回复', created_at: '2', metadata: {} },
       ]))
+      .mockResolvedValueOnce(expressionResponse('assistant-response'))
       .mockReturnValueOnce(new Promise<Response>((resolve) => { resolveSpeech = resolve; }));
 
     render(<App />);
@@ -842,7 +896,7 @@ describe('App', () => {
     expect(await screen.findByRole('button', { name: '发送并朗读' })).toHaveTextContent('发送并朗读中…');
     expect(screen.queryByRole('button', { name: '开始录音' })).not.toBeInTheDocument();
 
-    resolveChat(jsonResponse({ reply: '回复', metadata: { provider: 'fake', model: 'test' } }));
+    resolveChat(jsonResponse({ reply: '回复', metadata: { provider: 'fake', model: 'test' }, assistant_message_id: 'assistant-response' }));
   });
 
   it('does not duplicate voice-turn chat sends on repeated clicks', async () => {
@@ -889,7 +943,7 @@ describe('App', () => {
     const button = await screen.findByRole('button', { name: '发送并朗读' });
 
     await Promise.all([user.click(button), user.click(button)]);
-    resolveChat(jsonResponse({ reply: '回复', metadata: { provider: 'fake', model: 'test' } }));
+    resolveChat(jsonResponse({ reply: '回复', metadata: { provider: 'fake', model: 'test' }, assistant_message_id: 'assistant-response' }));
 
     await waitFor(() => {
       const chatCalls = vi.mocked(fetch).mock.calls.filter(([input, init]) =>
@@ -935,7 +989,7 @@ describe('App', () => {
       ]))
       .mockResolvedValueOnce(jsonResponse([]))
       .mockResolvedValueOnce(transcriptionStreamResponse('语音转写文本'))
-      .mockResolvedValueOnce(jsonResponse({ reply: '旧会话回复', metadata: { provider: 'fake', model: 'test' } }))
+      .mockResolvedValueOnce(jsonResponse({ reply: '旧会话回复', metadata: { provider: 'fake', model: 'test' }, assistant_message_id: 'assistant-response' }))
       .mockReturnValueOnce(new Promise<Response>((resolve) => { resolveSessionsAfterSend = resolve; }))
       .mockReturnValueOnce(new Promise<Response>((resolve) => { resolveMessagesAfterSend = resolve; }))
       .mockResolvedValueOnce(jsonResponse([
@@ -999,7 +1053,7 @@ describe('App', () => {
       ]))
       .mockResolvedValueOnce(jsonResponse([]))
       .mockResolvedValueOnce(transcriptionStreamResponse('语音转写文本'))
-      .mockResolvedValueOnce(jsonResponse({ reply: '旧会话回复', metadata: { provider: 'fake', model: 'test' } }))
+      .mockResolvedValueOnce(jsonResponse({ reply: '旧会话回复', metadata: { provider: 'fake', model: 'test' }, assistant_message_id: 'assistant-response' }))
       .mockReturnValueOnce(new Promise<Response>((resolve) => { resolveSessionsAfterSend = resolve; }))
       .mockReturnValueOnce(new Promise<Response>((resolve) => { resolveMessagesAfterSend = resolve; }))
       .mockResolvedValueOnce(jsonResponse([{ id: 's2-u1', session_id: 's2', role: 'user', content: '会话二消息', created_at: '1', metadata: {} }]))
@@ -1084,6 +1138,7 @@ describe('App', () => {
       .mockResolvedValueOnce(jsonResponse([
         { id: 'a1', session_id: 's1', role: 'assistant', content: '测试朗读', created_at: '', metadata: {} },
       ]))
+      .mockResolvedValueOnce(expressionResponse('a1'))
       .mockResolvedValueOnce(wavResponse());
 
     render(<App />);

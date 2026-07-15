@@ -84,6 +84,16 @@ class SessionRepository:
         self._connection.commit()
 
     def delete(self, session_id: str) -> bool:
+        self._connection.execute(
+            """
+            UPDATE emotion_events
+            SET source_session_id = NULL,
+                source_user_message_id = NULL,
+                source_assistant_message_id = NULL
+            WHERE source_session_id = ?
+            """,
+            (session_id,),
+        )
         cursor = self._connection.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
         self._connection.commit()
         return cursor.rowcount > 0

@@ -50,7 +50,7 @@ test.describe('Voice recorder E2E', () => {
     await page.getByRole('button', { name: '发送' }).click();
 
     await expect(page.getByText('语音测试', { exact: true })).toBeVisible({ timeout: 5000 });
-    await expect(page.getByText(/我听见了/)).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.message-list').getByText(/我听见了/)).toBeVisible({ timeout: 5000 });
 
     // Assistant playback still works
     await expect(page.getByRole('button', { name: '播放' })).toBeVisible();

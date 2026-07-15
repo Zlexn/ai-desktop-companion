@@ -4,6 +4,32 @@ from app.core.config import DEFAULT_DATABASE_URL, DEFAULT_MODEL, load_settings
 from app.core.errors import sanitize_error_text
 
 
+SESSION_SUMMARY_ENV_NAMES = (
+    "SESSION_SUMMARY_ENABLED",
+    "SESSION_SUMMARY_PROVIDER",
+    "SESSION_SUMMARY_TRIGGER_MESSAGE_COUNT",
+    "SESSION_SUMMARY_MAX_INPUT_MESSAGES",
+    "SESSION_SUMMARY_LLM_PROVIDER",
+    "SESSION_SUMMARY_LLM_MODEL",
+    "SESSION_SUMMARY_LLM_MAX_TOKENS",
+    "SESSION_SUMMARY_LLM_TIMEOUT_SECONDS",
+    "SESSION_SUMMARY_LLM_MAX_RETRIES",
+)
+
+EMOTION_ANALYSIS_ENV_NAMES = (
+    "EMOTION_ANALYSIS_ENABLED",
+    "EMOTION_ANALYSIS_PROVIDER",
+    "EMOTION_ANALYSIS_MODEL",
+    "EMOTION_ANALYSIS_MAX_TOKENS",
+    "EMOTION_ANALYSIS_TIMEOUT_SECONDS",
+    "EMOTION_ANALYSIS_MAX_RETRIES",
+    "EMOTION_ANALYSIS_RECENT_MESSAGES",
+    "EMOTION_ANALYSIS_MEMORY_LIMIT",
+    "EMOTION_ANALYSIS_MAX_ITEM_CHARACTERS",
+    "EMOTION_ANALYSIS_MAX_TOTAL_CHARACTERS",
+)
+
+
 @pytest.fixture(autouse=True)
 def clear_env(monkeypatch: pytest.MonkeyPatch) -> None:
     for name in (
@@ -16,6 +42,7 @@ def clear_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "LLM_TIMEOUT_SECONDS",
         "LLM_MAX_RETRIES",
         "RECENT_CONTEXT_MESSAGES",
+        "CHAT_CONTEXT_MAX_CHARACTERS",
         "ANTHROPIC_API_KEY",
         "DEEPSEEK_API_KEY",
         "DEEPSEEK_BASE_URL",
@@ -65,8 +92,138 @@ def clear_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "MEMORY_EMBEDDING_PROVIDER",
         "MEMORY_EMBEDDING_MODEL",
         "MEMORY_EMBEDDING_MIN_SCORE",
+        *SESSION_SUMMARY_ENV_NAMES,
+        *EMOTION_ANALYSIS_ENV_NAMES,
     ):
         monkeypatch.delenv(name, raising=False)
+
+
+
+def test_chat_context_max_characters_defaults_to_24000(monkeypatch):
+    monkeypatch.delenv("CHAT_CONTEXT_MAX_CHARACTERS", raising=False)
+
+    settings = load_settings()
+
+    assert settings.chat_context_max_characters == 24_000
+    assert settings.redacted()["chat_context_max_characters"] == 24_000
+
+
+def test_chat_context_max_characters_accepts_positive_override(monkeypatch):
+    monkeypatch.setenv("CHAT_CONTEXT_MAX_CHARACTERS", "12000")
+
+    assert load_settings().chat_context_max_characters == 12_000
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "not-an-integer"])
+def test_chat_context_max_characters_rejects_invalid_values(monkeypatch, value):
+    monkeypatch.setenv("CHAT_CONTEXT_MAX_CHARACTERS", value)
+
+    with pytest.raises(ValueError, match="CHAT_CONTEXT_MAX_CHARACTERS"):
+        load_settings()
+
+
+def test_emotion_analysis_settings_default_to_disabled_deepseek() -> None:
+    settings = load_settings()
+
+    assert settings.emotion_analysis_enabled is False
+    assert settings.emotion_analysis_provider == "deepseek"
+    assert settings.emotion_analysis_model == DEFAULT_MODEL
+    assert settings.emotion_analysis_max_tokens == 384
+    assert settings.emotion_analysis_timeout_seconds == 15.0
+    assert settings.emotion_analysis_max_retries == 0
+    assert settings.emotion_analysis_recent_messages == 6
+    assert settings.emotion_analysis_memory_limit == 3
+    assert settings.emotion_analysis_max_item_characters == 2_000
+    assert settings.emotion_analysis_max_total_characters == 8_000
+
+    redacted = settings.redacted()
+    assert redacted["emotion_analysis_enabled"] is False
+    assert redacted["emotion_analysis_provider"] == "deepseek"
+    assert redacted["emotion_analysis_model"] == DEFAULT_MODEL
+    assert "emotion_analysis_api_key" not in redacted
+
+
+def test_emotion_analysis_accepts_safe_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EMOTION_ANALYSIS_ENABLED", "true")
+    monkeypatch.setenv("EMOTION_ANALYSIS_PROVIDER", "anthropic")
+    monkeypatch.setenv("EMOTION_ANALYSIS_MODEL", "claude-test")
+    monkeypatch.setenv("EMOTION_ANALYSIS_MAX_TOKENS", "256")
+    monkeypatch.setenv("EMOTION_ANALYSIS_TIMEOUT_SECONDS", "8")
+    monkeypatch.setenv("EMOTION_ANALYSIS_MAX_RETRIES", "0")
+    monkeypatch.setenv("EMOTION_ANALYSIS_RECENT_MESSAGES", "4")
+    monkeypatch.setenv("EMOTION_ANALYSIS_MEMORY_LIMIT", "2")
+    monkeypatch.setenv("EMOTION_ANALYSIS_MAX_ITEM_CHARACTERS", "900")
+    monkeypatch.setenv("EMOTION_ANALYSIS_MAX_TOTAL_CHARACTERS", "3500")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "emotion-secret")
+
+    settings = load_settings()
+
+    assert settings.emotion_analysis_enabled is True
+    assert settings.emotion_analysis_provider == "anthropic"
+    assert settings.emotion_analysis_model == "claude-test"
+    assert settings.emotion_analysis_max_tokens == 256
+    assert settings.emotion_analysis_timeout_seconds == 8.0
+    assert settings.emotion_analysis_max_retries == 0
+    assert settings.emotion_analysis_recent_messages == 4
+    assert settings.emotion_analysis_memory_limit == 2
+    assert settings.emotion_analysis_max_item_characters == 900
+    assert settings.emotion_analysis_max_total_characters == 3_500
+    assert "emotion-secret" not in str(settings.redacted())
+
+
+@pytest.mark.parametrize(
+    ("name", "value", "message"),
+    [
+        ("EMOTION_ANALYSIS_PROVIDER", "other", "EMOTION_ANALYSIS_PROVIDER"),
+        ("EMOTION_ANALYSIS_MODEL", "   ", "EMOTION_ANALYSIS_MODEL"),
+        ("EMOTION_ANALYSIS_MAX_TOKENS", "0", "must be greater than 0"),
+        ("EMOTION_ANALYSIS_TIMEOUT_SECONDS", "0", "must be greater than 0"),
+        ("EMOTION_ANALYSIS_MAX_RETRIES", "1", "must be 0"),
+        ("EMOTION_ANALYSIS_RECENT_MESSAGES", "0", "must be greater than 0"),
+        ("EMOTION_ANALYSIS_MEMORY_LIMIT", "0", "must be greater than 0"),
+        ("EMOTION_ANALYSIS_MAX_ITEM_CHARACTERS", "0", "must be greater than 0"),
+        ("EMOTION_ANALYSIS_MAX_TOTAL_CHARACTERS", "0", "must be greater than 0"),
+        ("EMOTION_ANALYSIS_MAX_TOTAL_CHARACTERS", "1", "must be at least 2"),
+    ],
+)
+def test_invalid_enabled_emotion_analysis_setting_is_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+    name: str,
+    value: str,
+    message: str,
+) -> None:
+    monkeypatch.setenv("EMOTION_ANALYSIS_ENABLED", "true")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+    monkeypatch.setenv(name, value)
+
+    with pytest.raises(ValueError, match=message):
+        load_settings()
+
+
+def test_disabled_emotion_analysis_does_not_require_provider_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EMOTION_ANALYSIS_ENABLED", "false")
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+
+    assert load_settings().emotion_analysis_enabled is False
+
+
+def test_enabled_emotion_analysis_requires_selected_provider_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EMOTION_ANALYSIS_ENABLED", "true")
+    monkeypatch.setenv("EMOTION_ANALYSIS_PROVIDER", "deepseek")
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+
+    with pytest.raises(ValueError, match="DEEPSEEK_API_KEY"):
+        load_settings()
+
+
+def test_emotion_analysis_total_budget_must_cover_current_turn(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EMOTION_ANALYSIS_ENABLED", "true")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+    monkeypatch.setenv("EMOTION_ANALYSIS_MAX_ITEM_CHARACTERS", "2000")
+    monkeypatch.setenv("EMOTION_ANALYSIS_MAX_TOTAL_CHARACTERS", "1000")
+
+    with pytest.raises(ValueError, match="EMOTION_ANALYSIS_MAX_TOTAL_CHARACTERS"):
+        load_settings()
 
 
 def test_load_settings_defaults_to_fake_provider() -> None:
@@ -185,6 +342,101 @@ def test_rejects_unknown_memory_candidate_provider(monkeypatch: pytest.MonkeyPat
     monkeypatch.setenv("MEMORY_CANDIDATE_PROVIDER", "remote")
 
     with pytest.raises(ValueError, match="MEMORY_CANDIDATE_PROVIDER must be one of: heuristic, llm"):
+        load_settings()
+
+
+def test_session_summary_settings_default_to_offline_fake() -> None:
+    settings = load_settings()
+
+    assert settings.session_summary_enabled is True
+    assert settings.session_summary_provider == "fake"
+    assert settings.session_summary_trigger_message_count == 12
+    assert settings.session_summary_max_input_messages == 24
+    assert settings.session_summary_llm_provider == "deepseek"
+    assert settings.session_summary_llm_model == "deepseek-v4-flash"
+    assert settings.session_summary_llm_max_tokens == 512
+    assert settings.session_summary_llm_timeout_seconds == 15.0
+    assert settings.session_summary_llm_max_retries == 0
+
+    redacted = settings.redacted()
+    assert redacted["session_summary_enabled"] is True
+    assert redacted["session_summary_provider"] == "fake"
+    assert redacted["session_summary_trigger_message_count"] == 12
+    assert redacted["session_summary_max_input_messages"] == 24
+    assert redacted["session_summary_llm_provider"] == "deepseek"
+    assert redacted["session_summary_llm_model"] == "deepseek-v4-flash"
+    assert redacted["session_summary_llm_max_tokens"] == 512
+    assert redacted["session_summary_llm_timeout_seconds"] == 15.0
+    assert redacted["session_summary_llm_max_retries"] == 0
+
+
+@pytest.mark.parametrize(
+    ("name", "value", "message"),
+    [
+        ("SESSION_SUMMARY_PROVIDER", "other", "SESSION_SUMMARY_PROVIDER"),
+        ("SESSION_SUMMARY_TRIGGER_MESSAGE_COUNT", "0", "must be greater than 0"),
+        ("SESSION_SUMMARY_MAX_INPUT_MESSAGES", "0", "must be greater than 0"),
+        ("SESSION_SUMMARY_LLM_MAX_TOKENS", "0", "must be greater than 0"),
+        ("SESSION_SUMMARY_LLM_TIMEOUT_SECONDS", "0", "must be greater than 0"),
+        ("SESSION_SUMMARY_LLM_MAX_RETRIES", "-1", "greater than or equal to 0"),
+    ],
+)
+def test_invalid_session_summary_setting_is_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+    name: str,
+    value: str,
+    message: str,
+) -> None:
+    monkeypatch.setenv(name, value)
+
+    with pytest.raises(ValueError, match=message):
+        load_settings()
+
+
+def test_fake_summary_does_not_require_real_provider_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SESSION_SUMMARY_PROVIDER", "fake")
+    monkeypatch.setenv("SESSION_SUMMARY_LLM_PROVIDER", "deepseek")
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+
+    assert load_settings().session_summary_provider == "fake"
+
+
+def test_llm_summary_requires_selected_provider_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SESSION_SUMMARY_PROVIDER", "llm")
+    monkeypatch.setenv("SESSION_SUMMARY_LLM_PROVIDER", "deepseek")
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+
+    with pytest.raises(ValueError, match="DEEPSEEK_API_KEY"):
+        load_settings()
+
+
+def test_llm_summary_rejects_unknown_selected_provider(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SESSION_SUMMARY_PROVIDER", "llm")
+    monkeypatch.setenv("SESSION_SUMMARY_LLM_PROVIDER", "other")
+
+    with pytest.raises(
+        ValueError,
+        match="SESSION_SUMMARY_LLM_PROVIDER must be one of: anthropic, deepseek",
+    ):
+        load_settings()
+
+
+def test_fake_summary_ignores_empty_llm_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SESSION_SUMMARY_PROVIDER", "fake")
+    monkeypatch.setenv("SESSION_SUMMARY_LLM_MODEL", "   ")
+
+    settings = load_settings()
+
+    assert settings.session_summary_provider == "fake"
+
+
+def test_llm_summary_model_must_not_be_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SESSION_SUMMARY_PROVIDER", "llm")
+    monkeypatch.setenv("SESSION_SUMMARY_LLM_PROVIDER", "deepseek")
+    monkeypatch.setenv("SESSION_SUMMARY_LLM_MODEL", "   ")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+
+    with pytest.raises(ValueError, match="SESSION_SUMMARY_LLM_MODEL must not be empty"):
         load_settings()
 
 

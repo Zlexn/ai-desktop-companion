@@ -1,4 +1,5 @@
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -21,19 +22,35 @@ from app.providers.base import LLMMessage, LLMOptions, LLMResponse
 class DeepSeekProvider:
     provider_name = "deepseek"
 
-    def __init__(self, settings: Settings, client: httpx.AsyncClient | None = None) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        client: httpx.AsyncClient | None = None,
+        *,
+        max_tokens: int | None = None,
+        timeout_seconds: float | None = None,
+        max_retries: int | None = None,
+    ) -> None:
         if not settings.deepseek_api_key:
-            raise ValueError("DEEPSEEK_API_KEY is required when LLM_PROVIDER=deepseek")
+            raise ValueError("DEEPSEEK_API_KEY is required for DeepSeekProvider")
         self._settings = settings
         self._api_key = settings.deepseek_api_key
-        self._client = client or httpx.AsyncClient()
+        hostname = urlparse(settings.deepseek_base_url).hostname
+        trust_env = hostname not in {"127.0.0.1", "localhost", "::1"}
+        self._client = client or httpx.AsyncClient(trust_env=trust_env)
         self._endpoint = f"{settings.deepseek_base_url.rstrip('/')}/chat/completions"
+        self._max_tokens = settings.deepseek_max_tokens if max_tokens is None else max_tokens
+        self._timeout_seconds = settings.deepseek_timeout_seconds if timeout_seconds is None else timeout_seconds
+        self._max_retries = settings.deepseek_max_retries if max_retries is None else max_retries
+
+    async def aclose(self) -> None:
+        await self._client.aclose()
 
     async def generate(self, messages: list[LLMMessage], options: LLMOptions) -> LLMResponse:
         payload = {
             "model": options.model,
             "messages": self._to_deepseek_messages(messages),
-            "max_tokens": min(options.max_tokens, self._settings.deepseek_max_tokens, 256),
+            "max_tokens": min(options.max_tokens, self._max_tokens),
             "stream": False,
             "thinking": {"type": "disabled"},
         }
@@ -53,7 +70,7 @@ class DeepSeekProvider:
         )
 
     async def _post_with_retries(self, payload: dict[str, object], headers: dict[str, str]) -> httpx.Response:
-        attempts = self._settings.deepseek_max_retries + 1
+        attempts = self._max_retries + 1
         last_response: httpx.Response | None = None
         for attempt in range(attempts):
             try:
@@ -61,7 +78,7 @@ class DeepSeekProvider:
                     self._endpoint,
                     json=payload,
                     headers=headers,
-                    timeout=self._settings.deepseek_timeout_seconds,
+                    timeout=self._timeout_seconds,
                 )
             except httpx.TimeoutException as exc:
                 if attempt + 1 < attempts:

@@ -1,6 +1,7 @@
-import { streamSpeech } from './speechStream';
+import { parseMessageExpressionResponse } from '../expression/events';
+import { streamMessageSpeech, streamSpeech } from './speechStream';
 import { streamTranscription } from './transcriptionStream';
-import type { ApiErrorEnvelope, ChatResponse, CreateMemoryRequest, MemoryMutationResponse, MemoryRecord, MemoryStatus, Message, Session, SpeechSynthesisResponse, SynthesizeSpeechOptions, TranscribeAudioOptions, TranscriptionResult, UpdateMemoryRequest } from './types';
+import type { ApiErrorEnvelope, ChatResponse, CreateMemoryRequest, EmotionAnalysisAudit, EmotionAnalysisConsent, EmotionAnalysisConsentAction, EmotionEvent, EmotionState, MemoryMutationResponse, MemoryRecord, MemoryStatus, Message, MessageExpressionResponse, Session, SpeechSynthesisResponse, SynthesizeSpeechOptions, TranscribeAudioOptions, TranscriptionResult, UpdateMemoryRequest } from './types';
 
 async function requestJson<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {
@@ -36,12 +37,16 @@ function numericHeader(headers: Headers, name: string): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-async function requestSpeech(text: string, options: SynthesizeSpeechOptions = {}): Promise<SpeechSynthesisResponse> {
-  const response = await fetch('/api/audio/speech', {
+async function requestSpeech(
+  path: string,
+  body: Record<string, unknown>,
+  signal?: AbortSignal,
+): Promise<SpeechSynthesisResponse> {
+  const response = await fetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text, voice_id: options.voiceId, speed: options.speed }),
-    signal: options.signal,
+    body: JSON.stringify(body),
+    signal,
   });
 
   if (!response.ok) {
@@ -97,6 +102,16 @@ export const apiClient = {
     });
   },
 
+  getMessageExpression(
+    assistantMessageId: string,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<MessageExpressionResponse> {
+    return requestJson<unknown>(
+      `/api/messages/${encodeURIComponent(assistantMessageId)}/expression`,
+      { signal: options.signal },
+    ).then(parseMessageExpressionResponse);
+  },
+
   listMemories(status: MemoryStatus = 'active'): Promise<MemoryRecord[]> {
     const suffix = status === 'active' ? '' : `?status_filter=${encodeURIComponent(status)}`;
     return requestJson<MemoryRecord[]>(`/api/memories${suffix}`);
@@ -128,11 +143,62 @@ export const apiClient = {
     return requestJson<void>(`/api/memories/${memoryId}`, { method: 'DELETE' });
   },
 
-  synthesizeSpeech(text: string, options?: SynthesizeSpeechOptions): Promise<SpeechSynthesisResponse> {
-    return requestSpeech(text, options);
+  getEmotionState(): Promise<EmotionState> {
+    return requestJson<EmotionState>('/api/emotion/state');
+  },
+
+  listEmotionEvents(limit = 20): Promise<EmotionEvent[]> {
+    return requestJson<EmotionEvent[]>(`/api/emotion/events?limit=${limit}`);
+  },
+
+  updateEmotionSettings(enabled: boolean): Promise<EmotionState> {
+    return requestJson<EmotionState>('/api/emotion/settings', {
+      method: 'PATCH',
+      body: JSON.stringify({ enabled }),
+    });
+  },
+
+  resetEmotion(): Promise<EmotionState> {
+    return requestJson<EmotionState>('/api/emotion/reset', { method: 'POST' });
+  },
+
+  getEmotionAnalysisConsent(): Promise<EmotionAnalysisConsent> {
+    return requestJson<EmotionAnalysisConsent>('/api/emotion/analysis/consent');
+  },
+
+  updateEmotionAnalysisConsent(action: EmotionAnalysisConsentAction): Promise<EmotionAnalysisConsent> {
+    return requestJson<EmotionAnalysisConsent>('/api/emotion/analysis/consent', {
+      method: 'PUT',
+      body: JSON.stringify({ action, disclosure_version: 'emotion-analysis-disclosure-v1' }),
+    });
+  },
+
+  listEmotionAnalysisAudits(limit = 20): Promise<EmotionAnalysisAudit[]> {
+    return requestJson<EmotionAnalysisAudit[]>(`/api/emotion/analysis/audits?limit=${limit}`);
+  },
+
+  synthesizeSpeech(text: string, options: SynthesizeSpeechOptions = {}): Promise<SpeechSynthesisResponse> {
+    return requestSpeech(
+      '/api/audio/speech',
+      { text, voice_id: options.voiceId, speed: options.speed },
+      options.signal,
+    );
+  },
+
+  synthesizeMessageSpeech(
+    assistantMessageId: string,
+    options: SynthesizeSpeechOptions = {},
+  ): Promise<SpeechSynthesisResponse> {
+    return requestSpeech(
+      `/api/messages/${encodeURIComponent(assistantMessageId)}/speech`,
+      { voice_id: options.voiceId, speed: options.speed },
+      options.signal,
+    );
   },
 
   streamSpeech,
+
+  streamMessageSpeech,
 
   streamTranscription,
 

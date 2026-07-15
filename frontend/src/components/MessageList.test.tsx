@@ -100,6 +100,26 @@ describe('MessageList audio controls', () => {
     expect(playMock).not.toHaveBeenCalled();
   });
 
+  it('binds historical playback and retry to the persisted assistant ID', async () => {
+    const user = userEvent.setup();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(errorResponse('暂时失败'))
+      .mockResolvedValueOnce(wavResponse());
+    render(<Harness />);
+
+    await user.click(screen.getAllByRole('button', { name: '播放' })[0]);
+    expect(await screen.findByText('暂时失败')).toBeInTheDocument();
+    expect(screen.getAllByText('我听见了：你好').length).toBeGreaterThan(0);
+    await user.click(screen.getAllByRole('button', { name: '播放' })[0]);
+
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    for (const [url, init] of vi.mocked(fetch).mock.calls) {
+      expect(url).toBe('/api/messages/a1/speech');
+      expect(String(init?.body)).not.toContain('text');
+      expect(String(init?.body)).not.toContain('我听见了：你好');
+    }
+  });
+
   it('synthesizes once, creates a Blob URL, and enters playback state', async () => {
     const user = userEvent.setup();
     let resolveResponse: (response: Response) => void = () => undefined;
@@ -246,7 +266,7 @@ describe('MessageList audio controls', () => {
     function ResultHarness() {
       const audioController = useAudioPlaybackController();
       return (
-        <button type="button" onClick={async () => { playResult = await audioController.play('a1', '我听见了：你好'); }}>
+        <button type="button" onClick={async () => { playResult = await audioController.play('a1'); }}>
           run play
         </button>
       );
@@ -338,7 +358,7 @@ describe('MessageList audio controls', () => {
         <button
           type="button"
           onClick={() => {
-            void audioController.play('a1', '我听见了：你好。第二句。', { streaming: true });
+            void audioController.play('a1', { streaming: true });
           }}
         >
           stream play
@@ -348,7 +368,7 @@ describe('MessageList audio controls', () => {
 
     render(<StreamingHarness />);
     await user.click(screen.getByRole('button', { name: 'stream play' }));
-    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/audio/speech/stream', expect.any(Object)));
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/messages/a1/speech/stream', expect.any(Object)));
 
     const getStreamController = (): ReadableStreamDefaultController<Uint8Array> => {
       if (!streamController) throw new Error('stream controller was not initialized');
@@ -384,7 +404,7 @@ describe('MessageList audio controls', () => {
       const audioController = useAudioPlaybackController();
       return (
         <>
-          <button type="button" onClick={() => { void audioController.play('a1', '第一句。第二句。', { streaming: true }); }}>
+          <button type="button" onClick={() => { void audioController.play('a1', { streaming: true }); }}>
             stream play
           </button>
           <button type="button" onClick={() => audioController.stop('a1')}>
@@ -396,7 +416,7 @@ describe('MessageList audio controls', () => {
 
     render(<StreamingHarness />);
     await user.click(screen.getByRole('button', { name: 'stream play' }));
-    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/audio/speech/stream', expect.any(Object)));
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/messages/a1/speech/stream', expect.any(Object)));
 
     const getStreamController = (): ReadableStreamDefaultController<Uint8Array> => {
       if (!streamController) throw new Error('stream controller was not initialized');
@@ -431,7 +451,7 @@ describe('MessageList audio controls', () => {
     function StreamingHarness() {
       const audioController = useAudioPlaybackController();
       return (
-        <button type="button" onClick={() => { void audioController.play('a1', '第一句。', { streaming: true }); }}>
+        <button type="button" onClick={() => { void audioController.play('a1', { streaming: true }); }}>
           stream play
         </button>
       );

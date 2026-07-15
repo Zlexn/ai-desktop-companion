@@ -1,7 +1,7 @@
 # 虚拟角色交互系统：项目总纲
 > 版本：1.1
-> 当前阶段：**阶段 3——长期记忆（IMPLEMENTING；3A–3L COMPLETED；NEXT: Session Summary Generation Design or Automatic Conflict Resolution Design）**
-> 更新日期：2026-07-10
+> 当前阶段：**阶段 4——情感系统（IMPLEMENTING；4A + 4B + 4C + 4D + 4E COMPLETED；NEXT: confirm next minimal Stage 4 task）**
+> 更新日期：2026-07-15
 
 ## 1. 强制执行协议
 Claude 在处理本项目的每一个新任务前必须：
@@ -71,13 +71,14 @@ Claude 在处理本项目的每一个新任务前必须：
 |---|---|---|
 | 阶段 1：角色文字对话 | **COMPLETED**（2026-06-25；最终验收 PASS） | 已关闭；后续只允许维护、修复或证据补充，不得扩大阶段 1 范围 |
 | 阶段 2：语音功能 | **COMPLETED**（2026-07-06；总体验收审计 PASS） | 已关闭；后续只允许维护、修复或证据补充，不得扩大阶段 2 范围 |
-| 阶段 3：长期记忆 | **IMPLEMENTING** | 当前阶段；3A–3L 已完成；下一步可在会话摘要生成设计或自动冲突解决设计中选择一个最小闭环 |
-| 阶段 4：情感系统 | 未开始 | 不得提前实现 |
+| 阶段 3：长期记忆 | **COMPLETED**（2026-07-13；总体验收修复复验 PASS） | 已关闭；后续只允许维护、修复或证据补充，不得扩大阶段 3 范围 |
+| 阶段 4：情感系统 | **IMPLEMENTING**（4A 本地状态基础、4B 文本表达闭环、4C LLM 辅助分析与 consent、4D ExpressionPlan/TTS 表达、4E 消息绑定表现事件与浏览器语义预览已完成） | 下一步必须先确认新的最小 Stage 4 闭环；不得提前实现桌面资源或未授权角色素材 |
 
 阶段验收和历史证据不再内联在本文件中，详见：
 
 - 阶段 2 总体验收：`docs/stage2-voice-acceptance-audit.md`
 - 阶段 2 子任务证据：`docs/stage2*.md`
+- 阶段 3 总体验收：`docs/stage3-memory-acceptance-audit.md`（2026-07-13 修复复验 PASS）
 - 阶段 3 子任务证据：`docs/stage3*.md`
 - 设计与计划归档：`docs/superpowers/specs/`、`docs/superpowers/plans/`
 
@@ -95,7 +96,7 @@ Claude 在处理本项目的每一个新任务前必须：
 
 真实 TTS 生产化打包、生产级低延迟 streaming ASR、raw PCM AudioWorklet streaming、后台监听不作为进入阶段 3 的阻塞项。
 
-## 9. 阶段 3：长期记忆（当前阶段）
+## 9. 阶段 3：长期记忆（已关闭）
 目标：建立独立于聊天上下文的长期记忆，覆盖用户事实、偏好、长期目标、重要事件和关系事件。
 
 强制规则：
@@ -108,19 +109,21 @@ Claude 在处理本项目的每一个新任务前必须：
 - 聊天历史、会话摘要和长期记忆分别存储。
 - pending / dismissed / archived 候选不得进入对话上下文。
 
-已完成子任务：3A–3L。已建立手动记忆 CRUD、候选确认、相关性检索、冲突审计、保守语义冲突检测、opt-in embedding retrieval、中文检索评估、隔离真实 embedding 模型评估路径、用户确认式 opt-in LLM 记忆候选抽取、真实 embedding 模型生产选型评估、会话摘要独立存储，以及通用语义矛盾检测扩展。具体证据见 `docs/stage3*.md`。
+已完成子任务：3A–3M，以及长期记忆 GUI CRUD 收尾。已建立手动记忆 CRUD、候选确认、相关性检索、冲突审计、保守语义冲突检测、opt-in embedding retrieval、中文检索评估、隔离真实 embedding 模型评估路径、用户确认式 opt-in LLM 记忆候选抽取、真实 embedding 模型生产选型评估、会话摘要独立存储、通用语义矛盾检测扩展、自动非阻塞增量摘要生成，以及活跃长期记忆的可验证行内编辑。具体证据见 `docs/stage3*.md` 与 `docs/superpowers/plans/2026-07-12-memory-panel-inline-editing.md`。
 
-当前尚未实现：会话摘要生成/注入策略、自动冲突合并/解决工作流、阶段 4 情感系统。
+当前尚未实现：会话摘要注入策略、自动冲突合并/解决工作流、阶段 4 情感系统。
 
-### 下一最小完整闭环候选
-3L 已完成。下一步只能在阶段 3 范围内选择一个最小闭环，例如：
+阶段 3 已完成并关闭；总体验收修复复验于 2026-07-13 PASS，证据见 `docs/stage3-memory-acceptance-audit.md`。后续只允许维护、修复或补充证据，不得在阶段 3 范围内顺带实现摘要注入、自动冲突解决或情感状态。
 
-- 会话摘要生成设计：必须复用独立 summary 存储，不得把摘要包装成长期记忆，也不得未经设计直接注入对话上下文。
-- 自动冲突解决设计：必须保留审计痕迹，不得静默覆盖、合并或删除冲突记忆。
+### 下一最小完整闭环
+
+Stage 4 情感系统独立设计：定义可解释、有界、可衰减、可查看/重置/关闭的状态模型，并明确文本、TTS 和未来表情事件映射、持久化隔离、安全边界与验收策略。
+
+该任务只形成 Stage 4 设计，不直接实现情感代码、桌面壳或角色素材。设计批准后才能另立实施计划。
 
 任一下一任务开始前，必须先确认：当前阶段、任务目标、修改范围、验证方式、主要风险、是否跨越阶段边界。
 
-## 10. 阶段 4：情感系统（未开始）
+## 10. 阶段 4：情感系统（当前阶段）
 目标：建立连续、可解释、受约束的情感状态，协调文本、TTS 和角色表情。至少考虑 `mood`、`trust`、`concern`、`distance`、`irritation`、`formality`。
 
 强制规则：
@@ -131,7 +134,13 @@ Claude 在处理本项目的每一个新任务前必须：
 - 情感不得覆盖安全、事实准确性和用户明确指令。
 - 用户可查看、重置或关闭情感系统。
 
-阶段 4 未开始，当前不得提前实现。
+Stage 4A 本地状态基础、Stage 4B 文本表达闭环、Stage 4C LLM 辅助情感分析及 consent、Stage 4D ExpressionPlan/TTS 表达与 Stage 4E 消息绑定表现事件/浏览器语义预览均已完成。4B 将已提交快照格式化为短小、确定性、不可越权的离散 expression context；当前快照影响当前回复，成功 turn 更新下一轮。4C 增加默认关闭的独立分析 Provider、持久明确授权、预算与凭据脱敏、严格 JSON schema、本地限幅/CAS、非阻塞幂等任务和 metadata-only 审计；未授权、拒绝或撤回时不发送，远程失败不影响聊天或 Stage 4A 本地规则。4D 使用同一回复前快照，为已持久化 assistant message 生成版本化、受约束的 ExpressionPlan；message-bound TTS 仅映射供应商已确认支持的 speed，任何计划、合成或播放失败均不影响文字回复。4E 增加只读的 message-bound 表现 API、版本化 expression/speaking 事件、精确 playback run 生命周期和中性浏览器语义预览；本地 fallback 不缓存，speaking/paused/preview/display label 不持久化，表现查询或预览失败不影响聊天、录音或 TTS。证据见 `docs/stage4a-local-emotion-state-foundation.md`、`docs/stage4b-emotion-text-expression-loop.md`、`docs/stage4c-llm-emotion-analysis-consent.md`、`docs/stage4d-expression-plan-tts.md` 和 `docs/stage4e-expression-event-browser-preview.md`。
+
+### 下一最小完整闭环
+
+Stage 4E 已通过 fake-first 自动化、浏览器 E2E、数据库不变量、隔离 runtime 和独立代码审查验收。下一项工作开始前，必须由用户确认新的最小 Stage 4 闭环及其目标、修改范围、验证方式、主要风险与阶段边界。
+
+不得未经新设计批准提前实现 Live2D、桌面壳、后台监听或未授权角色素材。
 
 ## 11. 每个开发任务的流程
 1. 读取本文件并输出任务对齐信息。

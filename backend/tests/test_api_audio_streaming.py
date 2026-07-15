@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import base64
 import json
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from app.api.dependencies import get_tts_service
 from app.core.config import get_settings
+from app.core.errors import TTSUnavailableError
 from app.main import create_app
+from app.tts.base import SpeechSynthesisSegment
 
 
 def parse_ndjson(body: bytes) -> list[dict[str, object]]:
@@ -38,6 +42,34 @@ def test_speech_stream_api_rejects_blank_text_before_streaming(client: TestClien
 
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "tts_invalid_request"
+
+
+class LeakingAfterFirstSegmentTTSService:
+    async def synthesize_stream(
+        self,
+        text: str,
+        voice_id: str | None = None,
+        speed: float | None = None,
+    ) -> AsyncIterator[SpeechSynthesisSegment]:
+        yield SpeechSynthesisSegment(
+            b"RIFF", "audio/wav", 16_000, 100, "recording", "v1", 0
+        )
+        raise TTSUnavailableError("upstream secret: http://internal.local?token=abc")
+
+
+def test_legacy_speech_stream_hides_post_start_provider_error(client: TestClient) -> None:
+    client.app.dependency_overrides[get_tts_service] = LeakingAfterFirstSegmentTTSService
+    try:
+        response = client.post("/api/audio/speech/stream", json={"text": "测试"})
+    finally:
+        client.app.dependency_overrides.pop(get_tts_service, None)
+
+    assert response.status_code == 200
+    events = parse_ndjson(response.content)
+    assert events[-1] == {"type": "error", "message": "语音合成失败，请稍后重试。"}
+    assert "secret" not in response.text
+    assert "internal.local" not in response.text
+    assert "token" not in response.text
 
 
 def make_client_with_tts_provider(tmp_path: Path, monkeypatch, provider: str) -> TestClient:

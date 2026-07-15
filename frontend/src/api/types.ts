@@ -20,6 +20,19 @@ export interface ChatResponse {
     provider: string;
     model: string;
   };
+  assistant_message_id: string;
+}
+
+export type ExpressionDelivery = 'neutral' | 'warm' | 'reassuring' | 'reserved' | 'firm';
+export type ExpressionIntensity = 'low' | 'medium';
+
+export interface MessageExpressionResponse {
+  assistant_message_id: string;
+  schema_version: 1;
+  delivery: ExpressionDelivery;
+  intensity: ExpressionIntensity;
+  rate: number;
+  source: 'persisted_plan' | 'default';
 }
 
 export interface SpeechSynthesisResponse {
@@ -94,6 +107,70 @@ export interface UpdateMemoryRequest {
 export interface MemoryMutationResponse {
   memory: MemoryRecord;
   conflicts: MemoryRecord[];
+}
+
+export interface EmotionVector {
+  mood: number;
+  trust: number;
+  concern: number;
+  distance: number;
+  irritation: number;
+  formality: number;
+}
+
+export interface EmotionState {
+  scope_id: string;
+  enabled: boolean;
+  vector: EmotionVector;
+  version: number;
+  updated_at: string;
+}
+
+export interface EmotionEvent {
+  id: string;
+  event_type: 'transition' | 'decay' | 'settings' | 'reset';
+  before: EmotionVector;
+  after: EmotionVector;
+  applied_delta: EmotionVector;
+  reason_codes: string[];
+  source_session_id: string | null;
+  source_user_message_id: string | null;
+  source_assistant_message_id: string | null;
+  engine: string;
+  rule_version: string;
+  created_at: string;
+}
+
+export type EmotionAnalysisConsentStatus = 'unknown' | 'granted' | 'declined' | 'revoked';
+export type EmotionAnalysisConsentAction = 'grant' | 'decline' | 'revoke';
+
+export interface EmotionAnalysisConsent {
+  scope_id: string;
+  status: EmotionAnalysisConsentStatus;
+  disclosure_version: string | null;
+  provider: string | null;
+  deployment_provider: string;
+  deployment_enabled: boolean;
+  updated_at: string;
+}
+
+export interface EmotionAnalysisAudit {
+  id: string;
+  job_id: string;
+  outcome: 'applied' | 'no_change' | 'skipped' | 'invalid_output' | 'provider_error' | 'revoked' | 'failed';
+  source_session_id: string;
+  source_user_message_id: string;
+  source_assistant_message_id: string;
+  schema_version: string;
+  provider: string;
+  model: string;
+  message_count: number;
+  memory_count: number;
+  input_characters: number;
+  redaction_count: number;
+  elapsed_ms: number;
+  reason_code: string;
+  created_at: string;
 }
 
 export type TranscriptionStreamEvent =

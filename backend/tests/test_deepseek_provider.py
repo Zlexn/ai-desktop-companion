@@ -1,5 +1,6 @@
 import httpx
 import pytest
+from unittest.mock import AsyncMock
 
 from app.core.config import Settings
 from app.core.errors import (
@@ -145,6 +146,36 @@ async def test_deepseek_provider_clamps_max_tokens_to_stage_limit() -> None:
 
 
 @pytest.mark.asyncio
+async def test_deepseek_provider_explicit_overrides_take_precedence() -> None:
+    client = AsyncMock()
+    client.post.return_value = httpx.Response(200, json=success_payload("summary"))
+    provider = DeepSeekProvider(
+        settings(),
+        client=client,
+        max_tokens=512,
+        timeout_seconds=15.0,
+        max_retries=0,
+    )
+
+    result = await provider.generate(
+        messages(),
+        LLMOptions(
+            model="summary-model",
+            timeout_seconds=99.0,
+            max_retries=9,
+            max_tokens=700,
+        ),
+    )
+
+    assert result.text == "summary"
+    assert client.post.await_count == 1
+    call = client.post.await_args
+    assert call.kwargs["json"]["model"] == "summary-model"
+    assert call.kwargs["json"]["max_tokens"] == 512
+    assert call.kwargs["timeout"] == 15.0
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "payload",
     [
@@ -167,6 +198,36 @@ async def test_deepseek_provider_rejects_invalid_responses(payload: dict[str, ob
 def test_deepseek_provider_requires_api_key() -> None:
     with pytest.raises(ValueError, match="DEEPSEEK_API_KEY is required"):
         DeepSeekProvider(settings(deepseek_api_key=None))
+
+
+def test_deepseek_provider_bypasses_environment_proxy_for_loopback(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+    client = AsyncMock()
+
+    def create_client(**kwargs: object):
+        captured.update(kwargs)
+        return client
+
+    monkeypatch.setattr(httpx, "AsyncClient", create_client)
+
+    DeepSeekProvider(settings(deepseek_base_url="http://127.0.0.1:18101"))
+
+    assert captured == {"trust_env": False}
+
+
+def test_deepseek_provider_keeps_environment_proxy_support_for_remote_url(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+    client = AsyncMock()
+
+    def create_client(**kwargs: object):
+        captured.update(kwargs)
+        return client
+
+    monkeypatch.setattr(httpx, "AsyncClient", create_client)
+
+    DeepSeekProvider(settings(deepseek_base_url="https://api.deepseek.com"))
+
+    assert captured == {"trust_env": True}
 
 
 @pytest.mark.asyncio

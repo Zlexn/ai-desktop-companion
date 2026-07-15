@@ -70,6 +70,12 @@ class TTSService:
         except Exception as exc:
             raise TTSUnavailableError() from exc
 
+    @staticmethod
+    def validate_speed(speed: float) -> float:
+        if not math.isfinite(speed) or not MIN_SPEED <= speed <= MAX_SPEED:
+            raise TTSInvalidRequestError("语音语速必须在 0.5 到 2.0 之间。")
+        return speed
+
     def _validate_request(self, text: str, voice_id: str, speed: float) -> None:
         if not text:
             raise TTSInvalidRequestError("语音合成文本不能为空。")
@@ -77,8 +83,7 @@ class TTSService:
             raise TTSInvalidRequestError(f"语音合成文本不能超过 {self._settings.tts_max_text_chars} 个字符。")
         if voice_id != self._settings.tts_default_voice:
             raise TTSInvalidRequestError("未知的语音声音配置。")
-        if not math.isfinite(speed) or not MIN_SPEED <= speed <= MAX_SPEED:
-            raise TTSInvalidRequestError("语音语速必须在 0.5 到 2.0 之间。")
+        self.validate_speed(speed)
 
     def _validate_result(self, result: SpeechSynthesisResult) -> None:
         if not result.audio_bytes:

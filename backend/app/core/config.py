@@ -22,6 +22,7 @@ class Settings:
     llm_timeout_seconds: float = 30.0
     llm_max_retries: int = 2
     recent_context_messages: int = 12
+    chat_context_max_characters: int = 24_000
     fake_provider_mode: str = "ok"
     anthropic_api_key: str | None = None
     deepseek_api_key: str | None = None
@@ -72,12 +73,47 @@ class Settings:
     memory_embedding_provider: str = "fake"
     memory_embedding_model: str = "fake-memory-embedding-v1"
     memory_embedding_min_score: float = 0.35
+    session_summary_enabled: bool = True
+    session_summary_provider: str = "fake"
+    session_summary_trigger_message_count: int = 12
+    session_summary_max_input_messages: int = 24
+    session_summary_llm_provider: str = "deepseek"
+    session_summary_llm_model: str = DEFAULT_MODEL
+    session_summary_llm_max_tokens: int = 512
+    session_summary_llm_timeout_seconds: float = 15.0
+    session_summary_llm_max_retries: int = 0
+    emotion_analysis_enabled: bool = False
+    emotion_analysis_provider: str = "deepseek"
+    emotion_analysis_model: str = DEFAULT_MODEL
+    emotion_analysis_max_tokens: int = 384
+    emotion_analysis_timeout_seconds: float = 15.0
+    emotion_analysis_max_retries: int = 0
+    emotion_analysis_recent_messages: int = 6
+    emotion_analysis_memory_limit: int = 3
+    emotion_analysis_max_item_characters: int = 2_000
+    emotion_analysis_max_total_characters: int = 8_000
+
+    def emotion_analysis_policy_fingerprint(self) -> str:
+        endpoint = self.deepseek_base_url.rstrip('/') if self.emotion_analysis_provider == "deepseek" else "anthropic-default"
+        return "|".join(
+            (
+                "emotion-analysis-disclosure-v1",
+                self.emotion_analysis_provider,
+                endpoint,
+                str(self.emotion_analysis_recent_messages),
+                str(self.emotion_analysis_memory_limit),
+                str(self.emotion_analysis_max_item_characters),
+                str(self.emotion_analysis_max_total_characters),
+            )
+        )
 
     @property
     def sqlite_path(self) -> Path:
         if not self.database_url.startswith("sqlite:///"):
-            raise ValueError("Only sqlite:/// database URLs are supported in stage 1")
+            raise ValueError("Only sqlite:/// database URLs are supported")
         raw_path = self.database_url.removeprefix("sqlite:///")
+        if raw_path == ":memory:":
+            raise ValueError("DATABASE_URL=sqlite:///:memory: is not supported; use an isolated temporary SQLite file")
         return Path(raw_path)
 
     def redacted(self) -> dict[str, object]:
@@ -91,6 +127,7 @@ class Settings:
             "llm_timeout_seconds": self.llm_timeout_seconds,
             "llm_max_retries": self.llm_max_retries,
             "recent_context_messages": self.recent_context_messages,
+            "chat_context_max_characters": self.chat_context_max_characters,
             "fake_provider_mode": self.fake_provider_mode,
             "anthropic_api_key": "***" if self.anthropic_api_key else None,
             "deepseek_api_key": "***" if self.deepseek_api_key else None,
@@ -141,6 +178,25 @@ class Settings:
             "memory_embedding_provider": self.memory_embedding_provider,
             "memory_embedding_model": self.memory_embedding_model,
             "memory_embedding_min_score": self.memory_embedding_min_score,
+            "session_summary_enabled": self.session_summary_enabled,
+            "session_summary_provider": self.session_summary_provider,
+            "session_summary_trigger_message_count": self.session_summary_trigger_message_count,
+            "session_summary_max_input_messages": self.session_summary_max_input_messages,
+            "session_summary_llm_provider": self.session_summary_llm_provider,
+            "session_summary_llm_model": self.session_summary_llm_model,
+            "session_summary_llm_max_tokens": self.session_summary_llm_max_tokens,
+            "session_summary_llm_timeout_seconds": self.session_summary_llm_timeout_seconds,
+            "session_summary_llm_max_retries": self.session_summary_llm_max_retries,
+            "emotion_analysis_enabled": self.emotion_analysis_enabled,
+            "emotion_analysis_provider": self.emotion_analysis_provider,
+            "emotion_analysis_model": self.emotion_analysis_model,
+            "emotion_analysis_max_tokens": self.emotion_analysis_max_tokens,
+            "emotion_analysis_timeout_seconds": self.emotion_analysis_timeout_seconds,
+            "emotion_analysis_max_retries": self.emotion_analysis_max_retries,
+            "emotion_analysis_recent_messages": self.emotion_analysis_recent_messages,
+            "emotion_analysis_memory_limit": self.emotion_analysis_memory_limit,
+            "emotion_analysis_max_item_characters": self.emotion_analysis_max_item_characters,
+            "emotion_analysis_max_total_characters": self.emotion_analysis_max_total_characters,
         }
 
 
@@ -287,6 +343,54 @@ def load_settings() -> Settings:
     if memory_retrieval_fallback_limit > memory_context_limit:
         raise ValueError("MEMORY_RETRIEVAL_FALLBACK_LIMIT must be less than or equal to MEMORY_CONTEXT_LIMIT")
 
+    session_summary_provider = _get_env("SESSION_SUMMARY_PROVIDER", "fake").lower()
+    if session_summary_provider not in {"fake", "llm"}:
+        raise ValueError("SESSION_SUMMARY_PROVIDER must be one of: fake, llm")
+    session_summary_llm_provider = _get_env("SESSION_SUMMARY_LLM_PROVIDER", "deepseek").lower()
+    session_summary_llm_model = _get_env("SESSION_SUMMARY_LLM_MODEL", DEFAULT_MODEL).strip()
+    if session_summary_provider == "llm":
+        if session_summary_llm_provider not in {"anthropic", "deepseek"}:
+            raise ValueError("SESSION_SUMMARY_LLM_PROVIDER must be one of: anthropic, deepseek")
+        if not session_summary_llm_model:
+            raise ValueError("SESSION_SUMMARY_LLM_MODEL must not be empty")
+        if session_summary_llm_provider == "anthropic" and not anthropic_api_key:
+            raise ValueError("ANTHROPIC_API_KEY is required when SESSION_SUMMARY_LLM_PROVIDER=anthropic")
+        if session_summary_llm_provider == "deepseek" and not deepseek_api_key:
+            raise ValueError("DEEPSEEK_API_KEY is required when SESSION_SUMMARY_LLM_PROVIDER=deepseek")
+
+    emotion_analysis_enabled = _get_bool_env("EMOTION_ANALYSIS_ENABLED", False)
+    emotion_analysis_provider = _get_env("EMOTION_ANALYSIS_PROVIDER", "deepseek").lower()
+    emotion_analysis_model = _get_env("EMOTION_ANALYSIS_MODEL", DEFAULT_MODEL).strip()
+    emotion_analysis_max_tokens = _get_positive_int_env("EMOTION_ANALYSIS_MAX_TOKENS", 384)
+    emotion_analysis_timeout_seconds = _get_float_env("EMOTION_ANALYSIS_TIMEOUT_SECONDS", 15.0)
+    emotion_analysis_max_retries = _get_int_env("EMOTION_ANALYSIS_MAX_RETRIES", 0)
+    if emotion_analysis_max_retries != 0:
+        raise ValueError("EMOTION_ANALYSIS_MAX_RETRIES must be 0 without provider idempotency support")
+    emotion_analysis_recent_messages = _get_positive_int_env("EMOTION_ANALYSIS_RECENT_MESSAGES", 6)
+    emotion_analysis_memory_limit = _get_positive_int_env("EMOTION_ANALYSIS_MEMORY_LIMIT", 3)
+    emotion_analysis_max_item_characters = _get_positive_int_env("EMOTION_ANALYSIS_MAX_ITEM_CHARACTERS", 2_000)
+    emotion_analysis_max_total_characters = _get_positive_int_env("EMOTION_ANALYSIS_MAX_TOTAL_CHARACTERS", 8_000)
+    if emotion_analysis_max_total_characters < 2:
+        raise ValueError("EMOTION_ANALYSIS_MAX_TOTAL_CHARACTERS must be at least 2")
+    if emotion_analysis_recent_messages > 6:
+        raise ValueError("EMOTION_ANALYSIS_RECENT_MESSAGES must be less than or equal to 6")
+    if emotion_analysis_memory_limit > 3:
+        raise ValueError("EMOTION_ANALYSIS_MEMORY_LIMIT must be less than or equal to 3")
+    if emotion_analysis_enabled:
+        if emotion_analysis_provider not in {"anthropic", "deepseek"}:
+            raise ValueError("EMOTION_ANALYSIS_PROVIDER must be one of: anthropic, deepseek")
+        if not emotion_analysis_model:
+            raise ValueError("EMOTION_ANALYSIS_MODEL must not be empty")
+        if emotion_analysis_provider == "anthropic" and not anthropic_api_key:
+            raise ValueError("ANTHROPIC_API_KEY is required when EMOTION_ANALYSIS_PROVIDER=anthropic")
+        if emotion_analysis_provider == "deepseek" and not deepseek_api_key:
+            raise ValueError("DEEPSEEK_API_KEY is required when EMOTION_ANALYSIS_PROVIDER=deepseek")
+        if emotion_analysis_max_total_characters < emotion_analysis_max_item_characters:
+            raise ValueError(
+                "EMOTION_ANALYSIS_MAX_TOTAL_CHARACTERS must be greater than or equal to "
+                "EMOTION_ANALYSIS_MAX_ITEM_CHARACTERS"
+            )
+
     return Settings(
         app_name=_get_env("APP_NAME", "AI Desktop Companion"),
         app_env=_get_env("APP_ENV", "development"),
@@ -297,6 +401,7 @@ def load_settings() -> Settings:
         llm_timeout_seconds=_get_float_env("LLM_TIMEOUT_SECONDS", 30.0),
         llm_max_retries=_get_int_env("LLM_MAX_RETRIES", 2),
         recent_context_messages=_get_positive_int_env("RECENT_CONTEXT_MESSAGES", 12),
+        chat_context_max_characters=_get_positive_int_env("CHAT_CONTEXT_MAX_CHARACTERS", 24_000),
         fake_provider_mode=_get_env("FAKE_PROVIDER_MODE", "ok"),
         anthropic_api_key=anthropic_api_key,
         deepseek_api_key=deepseek_api_key,
@@ -347,6 +452,25 @@ def load_settings() -> Settings:
         memory_embedding_provider=memory_embedding_provider,
         memory_embedding_model=_get_stripped_env("MEMORY_EMBEDDING_MODEL", "fake-memory-embedding-v1"),
         memory_embedding_min_score=_get_score_env("MEMORY_EMBEDDING_MIN_SCORE", 0.35),
+        session_summary_enabled=_get_bool_env("SESSION_SUMMARY_ENABLED", True),
+        session_summary_provider=session_summary_provider,
+        session_summary_trigger_message_count=_get_positive_int_env("SESSION_SUMMARY_TRIGGER_MESSAGE_COUNT", 12),
+        session_summary_max_input_messages=_get_positive_int_env("SESSION_SUMMARY_MAX_INPUT_MESSAGES", 24),
+        session_summary_llm_provider=session_summary_llm_provider,
+        session_summary_llm_model=session_summary_llm_model,
+        session_summary_llm_max_tokens=_get_positive_int_env("SESSION_SUMMARY_LLM_MAX_TOKENS", 512),
+        session_summary_llm_timeout_seconds=_get_float_env("SESSION_SUMMARY_LLM_TIMEOUT_SECONDS", 15.0),
+        session_summary_llm_max_retries=_get_int_env("SESSION_SUMMARY_LLM_MAX_RETRIES", 0),
+        emotion_analysis_enabled=emotion_analysis_enabled,
+        emotion_analysis_provider=emotion_analysis_provider,
+        emotion_analysis_model=emotion_analysis_model,
+        emotion_analysis_max_tokens=emotion_analysis_max_tokens,
+        emotion_analysis_timeout_seconds=emotion_analysis_timeout_seconds,
+        emotion_analysis_max_retries=emotion_analysis_max_retries,
+        emotion_analysis_recent_messages=emotion_analysis_recent_messages,
+        emotion_analysis_memory_limit=emotion_analysis_memory_limit,
+        emotion_analysis_max_item_characters=emotion_analysis_max_item_characters,
+        emotion_analysis_max_total_characters=emotion_analysis_max_total_characters,
     )
 
 

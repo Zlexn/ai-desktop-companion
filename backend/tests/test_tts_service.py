@@ -11,6 +11,17 @@ from app.tts.factory import create_tts_provider
 from app.tts.fake_provider import FakeTTSProvider
 
 
+def test_tts_service_validate_speed_accepts_boundaries() -> None:
+    assert TTSService.validate_speed(0.5) == 0.5
+    assert TTSService.validate_speed(2.0) == 2.0
+
+
+@pytest.mark.parametrize("speed", [0.49, 2.01, float("inf"), float("nan")])
+def test_tts_service_validate_speed_rejects_invalid_values(speed: float) -> None:
+    with pytest.raises(TTSInvalidRequestError):
+        TTSService.validate_speed(speed)
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("text", ["", "   ", "\n\t"])
 async def test_tts_service_rejects_empty_or_blank_text(text: str) -> None:

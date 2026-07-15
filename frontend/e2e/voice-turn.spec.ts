@@ -2,8 +2,9 @@ import { expect, test } from '@playwright/test';
 
 test('fake half-duplex voice turn sends transcript and requests TTS playback', async ({ page }) => {
   const consoleErrors: string[] = [];
-  const speechRequests: string[] = [];
+  const speechRequests: Array<{ pathname: string; body: unknown }> = [];
   const chatPostRequests: string[] = [];
+  let assistantMessageId: string | null = null;
   let firstAudioPlayAt: number | null = null;
   let streamFinishedAt: number | null = null;
 
@@ -15,17 +16,25 @@ test('fake half-duplex voice turn sends transcript and requests TTS playback', a
   });
   page.on('request', (request) => {
     const url = new URL(request.url());
-    if (url.pathname === '/api/audio/speech/stream') {
-      speechRequests.push(request.url());
+    if (/^\/api\/messages\/[^/]+\/speech\/stream$/.test(url.pathname)) {
+      speechRequests.push({ pathname: url.pathname, body: request.postDataJSON() });
     }
     if (request.method() === 'POST' && /^\/api\/sessions\/[^/]+\/messages$/.test(url.pathname)) {
       chatPostRequests.push(request.url());
     }
   });
 
+  page.on('response', async (response) => {
+    const url = new URL(response.url());
+    if (response.request().method() === 'POST' && /^\/api\/sessions\/[^/]+\/messages$/.test(url.pathname)) {
+      const body = await response.json() as { assistant_message_id?: unknown };
+      if (typeof body.assistant_message_id === 'string') assistantMessageId = body.assistant_message_id;
+    }
+  });
+
   page.on('requestfinished', (request) => {
     const url = new URL(request.url());
-    if (url.pathname === '/api/audio/speech/stream' && streamFinishedAt === null) {
+    if (/^\/api\/messages\/[^/]+\/speech\/stream$/.test(url.pathname) && streamFinishedAt === null) {
       streamFinishedAt = Date.now();
     }
   });
@@ -117,14 +126,18 @@ test('fake half-duplex voice turn sends transcript and requests TTS playback', a
 
   await page.getByRole('button', { name: '发送并朗读' }).click();
 
-  await expect(page.getByText(/我听见了/)).toBeVisible({ timeout: 5000 });
+  await expect(page.locator('.message-list').getByText(/我听见了/)).toBeVisible({ timeout: 5000 });
   await expect.poll(() => speechRequests.length).toBe(1);
+  await expect.poll(() => assistantMessageId).not.toBeNull();
+  expect(speechRequests[0].pathname).toBe(`/api/messages/${assistantMessageId}/speech/stream`);
+  expect(speechRequests[0].body).toEqual({});
+  expect(JSON.stringify(speechRequests[0].body)).not.toMatch(/text|delivery|intensity|style|ssml|provider_options/);
   expect(chatPostRequests).toHaveLength(1);
   await expect.poll(() => firstAudioPlayAt).not.toBeNull();
   await expect.poll(() => streamFinishedAt).not.toBeNull();
   expect(firstAudioPlayAt as number).toBeLessThanOrEqual((streamFinishedAt as number) + 1000);
   await expect.poll(async () => page.evaluate(() => (window as typeof window & { __lastSinkId?: string }).__lastSinkId)).toBe('usb-speaker');
   await expect(page.getByText('语音转写文本', { exact: true })).toHaveCount(1);
-  await expect(page.getByText(/我听见了：语音转写文本/)).toHaveCount(1);
+  await expect(page.locator('.message-list').getByText(/我听见了：语音转写文本/)).toHaveCount(1);
   expect(consoleErrors).toEqual([]);
 });

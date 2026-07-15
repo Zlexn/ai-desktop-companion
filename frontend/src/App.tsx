@@ -1,13 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { displayLabelForAssistantMessage } from './expression/displayLabel';
 import { apiClient } from './api/client';
-import type { CreateMemoryRequest, MemoryRecord, Message, Session, UpdateMemoryRequest } from './api/types';
+import type { CreateMemoryRequest, EmotionAnalysisAudit, EmotionAnalysisConsent, EmotionAnalysisConsentAction, EmotionEvent, EmotionState, MemoryRecord, Message, Session, UpdateMemoryRequest } from './api/types';
 import { ChatLayout } from './components/ChatLayout';
 import { useAudioPlaybackController } from './hooks/useAudioPlaybackController';
 import { useAudioInputDevices } from './hooks/useAudioInputDevices';
 import { useAudioOutputDevices } from './hooks/useAudioOutputDevices';
+import { useExpressionPreviewController } from './hooks/useExpressionPreviewController';
 import { useManualAudioRecorder } from './hooks/useManualAudioRecorder';
 import { useVadAutoStop } from './hooks/useVadAutoStop';
-import { findAssistantReplyForVoiceTurn } from './voiceTurn';
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : '请求失败，请稍后重试。';
@@ -22,17 +23,36 @@ export function App() {
   const [memoryLoading, setMemoryLoading] = useState(false);
   const [memoryError, setMemoryError] = useState<string | null>(null);
   const [memoryConflicts, setMemoryConflicts] = useState<MemoryRecord[]>([]);
+  const [emotionState, setEmotionState] = useState<EmotionState | null>(null);
+  const [emotionEvents, setEmotionEvents] = useState<EmotionEvent[]>([]);
+  const [emotionAnalysisConsent, setEmotionAnalysisConsent] = useState<EmotionAnalysisConsent | null>(null);
+  const [emotionAnalysisAudits, setEmotionAnalysisAudits] = useState<EmotionAnalysisAudit[]>([]);
+  const [emotionLoading, setEmotionLoading] = useState(false);
+  const [emotionConsentLoading, setEmotionConsentLoading] = useState(false);
+  const [emotionAuditLoading, setEmotionAuditLoading] = useState(false);
+  const [emotionError, setEmotionError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const audioOutputDevices = useAudioOutputDevices();
-  const audioController = useAudioPlaybackController({ audioOutputDeviceId: audioOutputDevices.selectedDeviceId });
+  const expressionPreview = useExpressionPreviewController(activeSessionId);
+  const audioController = useAudioPlaybackController({
+    audioOutputDeviceId: audioOutputDevices.selectedDeviceId,
+    onRunActivated: expressionPreview.onRunActivated,
+    onRunDeactivated: expressionPreview.onRunDeactivated,
+    onSpeakingEvent: expressionPreview.onSpeakingEvent,
+  });
   const audioInputDevices = useAudioInputDevices();
   const recorder = useManualAudioRecorder({ audioInputDeviceId: audioInputDevices.selectedDeviceId });
   const [pendingTranscript, setPendingTranscript] = useState<string | null>(null);
   const [voiceTurnStatus, setVoiceTurnStatus] = useState<'idle' | 'sending_chat' | 'synthesizing_or_playing' | 'error'>('idle');
   const [voiceTurnError, setVoiceTurnError] = useState<string | null>(null);
   const activeSessionIdRef = useRef<string | null>(activeSessionId);
+  const emotionRequestGenerationRef = useRef(0);
+  const emotionConsentGenerationRef = useRef(0);
+  const emotionAuditGenerationRef = useRef(0);
   const voiceTurnGenerationRef = useRef(0);
+  const textSendGenerationRef = useRef(0);
+  const messageLoadGenerationRef = useRef(0);
   const voiceTurnInFlightRef = useRef(false);
   const vadAutoStop = useVadAutoStop({
     enabled: import.meta.env.MODE !== 'test' || import.meta.env.VITE_ENABLE_FAKE_VAD_IN_TEST === '1',
@@ -72,7 +92,8 @@ export function App() {
       setLoading(false);
     }
 
-    audioController.reset();
+    audioController.reset('interrupted');
+    expressionPreview.clear();
     await recorder.startRecording('');
   }, [audioController, recorder, voiceTurnStatus]);
 
@@ -103,13 +124,33 @@ export function App() {
   }
 
   async function loadMessages(sessionId: string) {
+    const generation = ++messageLoadGenerationRef.current;
     setLoading(true);
     try {
-      setMessages(await apiClient.listMessages(sessionId));
+      const loaded = await apiClient.listMessages(sessionId);
+      if (
+        generation !== messageLoadGenerationRef.current ||
+        activeSessionIdRef.current !== sessionId
+      ) return;
+      setMessages(loaded);
+      const latestAssistant = [...loaded]
+        .reverse()
+        .find((item) => item.role === 'assistant');
+      if (latestAssistant) {
+        expressionPreview.selectAssistantMessage(sessionId, latestAssistant.id);
+      } else {
+        expressionPreview.clear();
+      }
     } catch (caught) {
-      setError(errorMessage(caught));
+      if (
+        generation === messageLoadGenerationRef.current &&
+        activeSessionIdRef.current === sessionId
+      ) setError(errorMessage(caught));
     } finally {
-      setLoading(false);
+      if (
+        generation === messageLoadGenerationRef.current &&
+        activeSessionIdRef.current === sessionId
+      ) setLoading(false);
     }
   }
 
@@ -137,11 +178,41 @@ export function App() {
     }
   }
 
+  async function loadEmotion() {
+    const generation = ++emotionRequestGenerationRef.current;
+    const consentGeneration = emotionConsentGenerationRef.current;
+    setEmotionLoading(true);
+    try {
+      const [state, events, analysisConsent, analysisAudits] = await Promise.all([
+        apiClient.getEmotionState(),
+        apiClient.listEmotionEvents(),
+        apiClient.getEmotionAnalysisConsent(),
+        apiClient.listEmotionAnalysisAudits(),
+      ]);
+      if (generation !== emotionRequestGenerationRef.current) return;
+      setEmotionState((current) => current && current.version > state.version ? current : state);
+      setEmotionEvents(events);
+      if (consentGeneration === emotionConsentGenerationRef.current) {
+        setEmotionAnalysisConsent(analysisConsent);
+      }
+      setEmotionAnalysisAudits(analysisAudits);
+      setEmotionError(null);
+    } catch (caught) {
+      if (generation !== emotionRequestGenerationRef.current) return;
+      setEmotionError(errorMessage(caught));
+    } finally {
+      if (generation === emotionRequestGenerationRef.current) setEmotionLoading(false);
+    }
+  }
+
   useEffect(() => {
     void loadSessions();
     if (import.meta.env.MODE !== 'test' || import.meta.env.VITE_ENABLE_MEMORY_LOAD_IN_TEST === '1') {
       void loadMemories();
       void loadMemoryCandidates();
+    }
+    if (import.meta.env.MODE !== 'test' || import.meta.env.VITE_ENABLE_EMOTION_LOAD_IN_TEST === '1') {
+      void loadEmotion();
     }
   }, []);
 
@@ -159,11 +230,14 @@ export function App() {
 
   async function handleCreateSession() {
     voiceTurnGenerationRef.current += 1;
+    textSendGenerationRef.current += 1;
+    messageLoadGenerationRef.current += 1;
     voiceTurnInFlightRef.current = false;
     setLoading(true);
     try {
       const session = await apiClient.createSession('新会话');
-      audioController.reset();
+      audioController.reset('interrupted');
+      expressionPreview.clear();
       resetVoiceState();
       activeSessionIdRef.current = session.id;
       setSessions((current) => [session, ...current]);
@@ -178,15 +252,20 @@ export function App() {
 
   function handleSelectSession(sessionId: string) {
     voiceTurnGenerationRef.current += 1;
+    textSendGenerationRef.current += 1;
+    messageLoadGenerationRef.current += 1;
     voiceTurnInFlightRef.current = false;
     activeSessionIdRef.current = sessionId;
-    audioController.reset();
+    audioController.reset('interrupted');
+    expressionPreview.clear();
     resetVoiceState();
     setActiveSessionId(sessionId);
   }
 
   async function handleDeleteSession(sessionId: string) {
     voiceTurnGenerationRef.current += 1;
+    textSendGenerationRef.current += 1;
+    messageLoadGenerationRef.current += 1;
     voiceTurnInFlightRef.current = false;
     if (activeSessionId === sessionId) {
       activeSessionIdRef.current = null;
@@ -194,7 +273,9 @@ export function App() {
     setLoading(true);
     try {
       await apiClient.deleteSession(sessionId);
-      audioController.reset();
+      expressionPreview.dropSession(sessionId);
+      audioController.reset('interrupted');
+      if (activeSessionId === sessionId) expressionPreview.clear();
       resetVoiceState();
       setSessions((current) => current.filter((session) => session.id !== sessionId));
       if (activeSessionId === sessionId) {
@@ -209,22 +290,39 @@ export function App() {
   }
 
   async function handleSendMessage(content: string) {
-    if (!activeSessionId) return;
+    const sessionId = activeSessionId;
+    if (!sessionId) return;
+    const generation = ++textSendGenerationRef.current;
     setLoading(true);
     setError(null);
     try {
-      await apiClient.sendMessage(activeSessionId, content);
+      const chatResponse = await apiClient.sendMessage(sessionId, content);
       const [updatedSessions, updatedMessages] = await Promise.all([
         apiClient.listSessions(),
-        apiClient.listMessages(activeSessionId),
+        apiClient.listMessages(sessionId),
       ]);
+      if (
+        generation !== textSendGenerationRef.current ||
+        activeSessionIdRef.current !== sessionId
+      ) return;
       setSessions(updatedSessions);
       setMessages(updatedMessages);
+      expressionPreview.selectAssistantMessage(
+        sessionId,
+        chatResponse.assistant_message_id,
+      );
       void loadMemoryCandidates();
+      void loadEmotion();
     } catch (caught) {
-      setError(errorMessage(caught));
+      if (
+        generation === textSendGenerationRef.current &&
+        activeSessionIdRef.current === sessionId
+      ) setError(errorMessage(caught));
     } finally {
-      setLoading(false);
+      if (
+        generation === textSendGenerationRef.current &&
+        activeSessionIdRef.current === sessionId
+      ) setLoading(false);
     }
   }
 
@@ -251,6 +349,7 @@ export function App() {
       setMemories((current) => current.map((memory) => memory.id === memoryId ? response.memory : memory));
     } catch (caught) {
       setMemoryError(errorMessage(caught));
+      throw caught;
     } finally {
       setMemoryLoading(false);
     }
@@ -298,6 +397,64 @@ export function App() {
     }
   }
 
+  async function runEmotionStateMutation(mutate: () => Promise<EmotionState>) {
+    emotionRequestGenerationRef.current += 1;
+    setEmotionLoading(true);
+    setEmotionError(null);
+    try {
+      setEmotionState(await mutate());
+      setEmotionEvents(await apiClient.listEmotionEvents());
+    } catch (caught) {
+      setEmotionError(errorMessage(caught));
+    } finally {
+      setEmotionLoading(false);
+    }
+  }
+
+  async function handleSetEmotionEnabled(enabled: boolean) {
+    await runEmotionStateMutation(() => apiClient.updateEmotionSettings(enabled));
+  }
+
+  async function handleResetEmotion() {
+    await runEmotionStateMutation(() => apiClient.resetEmotion());
+  }
+
+  async function refreshEmotionAnalysisAudits() {
+    const generation = ++emotionAuditGenerationRef.current;
+    setEmotionAuditLoading(true);
+    setEmotionError(null);
+    try {
+      const audits = await apiClient.listEmotionAnalysisAudits();
+      if (generation === emotionAuditGenerationRef.current) {
+        setEmotionAnalysisAudits(audits);
+      }
+    } catch (caught) {
+      if (generation === emotionAuditGenerationRef.current) {
+        setEmotionError(errorMessage(caught));
+      }
+    } finally {
+      if (generation === emotionAuditGenerationRef.current) {
+        setEmotionAuditLoading(false);
+      }
+    }
+  }
+
+  async function handleUpdateEmotionAnalysisConsent(action: EmotionAnalysisConsentAction) {
+    emotionConsentGenerationRef.current += 1;
+    setEmotionConsentLoading(true);
+    setEmotionError(null);
+    try {
+      const updated = await apiClient.updateEmotionAnalysisConsent(action);
+      emotionConsentGenerationRef.current += 1;
+      setEmotionAnalysisConsent(updated);
+      setEmotionAnalysisAudits(await apiClient.listEmotionAnalysisAudits());
+    } catch (caught) {
+      setEmotionError(errorMessage(caught));
+    } finally {
+      setEmotionConsentLoading(false);
+    }
+  }
+
   async function handleSendAndSpeakTranscript(transcript: string) {
     const sessionId = activeSessionId;
     const cleanTranscript = transcript.trim();
@@ -308,14 +465,13 @@ export function App() {
     voiceTurnInFlightRef.current = true;
     voiceTurnGenerationRef.current += 1;
     const generation = voiceTurnGenerationRef.current;
-    const beforeMessages = messages;
     setLoading(true);
     setError(null);
     setVoiceTurnError(null);
     setVoiceTurnStatus('sending_chat');
 
     try {
-      await apiClient.sendMessage(sessionId, cleanTranscript);
+      const chatResponse = await apiClient.sendMessage(sessionId, cleanTranscript);
       const [updatedSessions, updatedMessages] = await Promise.all([
         apiClient.listSessions(),
         apiClient.listMessages(sessionId),
@@ -327,22 +483,18 @@ export function App() {
       setMessages(updatedMessages);
       setPendingTranscript(null);
       recorder.clearResult();
-
-      const assistantMessage = findAssistantReplyForVoiceTurn({
-        before: beforeMessages,
-        after: updatedMessages,
-        transcript: cleanTranscript,
+      expressionPreview.selectAssistantMessage(
         sessionId,
-      });
-
-      if (!assistantMessage) {
-        setVoiceTurnStatus('error');
-        setVoiceTurnError('文字回复已生成，但没有找到对应的语音回复，请使用消息上的播放按钮。');
-        return;
+        chatResponse.assistant_message_id,
+      );
+      if (import.meta.env.MODE !== 'test' || import.meta.env.VITE_ENABLE_EMOTION_LOAD_IN_TEST === '1') {
+        void loadEmotion();
       }
 
       setVoiceTurnStatus('synthesizing_or_playing');
-      const played = await audioController.play(assistantMessage.id, assistantMessage.content, { streaming: true });
+      const played = await audioController.play(chatResponse.assistant_message_id, {
+        streaming: true,
+      });
       void loadMemoryCandidates();
       if (!isCurrentVoiceTurn(sessionId, generation)) return;
 
@@ -376,6 +528,12 @@ export function App() {
   const recorderHintMessage = audioController.isAudioBusy || isVoiceTurnSynthesizingOrPlaying
     ? '点击开始录音会停止当前朗读'
     : null;
+  const expressionPreviewLabel = useMemo(() => {
+    const assistantMessageId = expressionPreview.state.selectedAssistantMessageId;
+    return assistantMessageId
+      ? displayLabelForAssistantMessage(messages, assistantMessageId)
+      : '助手消息';
+  }, [expressionPreview.state.selectedAssistantMessageId, messages]);
 
   return (
     <ChatLayout
@@ -384,11 +542,26 @@ export function App() {
       messages={messages}
       loading={loading}
       error={error}
+      expressionPreviewState={expressionPreview.state}
+      expressionPreviewLabel={expressionPreviewLabel}
       memories={memories}
       memoryCandidates={memoryCandidates}
       memoryLoading={memoryLoading}
       memoryError={memoryError}
       memoryConflicts={memoryConflicts}
+      emotionState={emotionState}
+      emotionEvents={emotionEvents}
+      emotionLoading={emotionLoading}
+      emotionError={emotionError}
+      emotionAnalysisConsent={emotionAnalysisConsent}
+      emotionAnalysisAudits={emotionAnalysisAudits}
+      emotionAnalysisConsentLoading={emotionConsentLoading}
+      emotionAnalysisAuditLoading={emotionAuditLoading}
+      onSetEmotionEnabled={handleSetEmotionEnabled}
+      onResetEmotion={handleResetEmotion}
+      onRetryEmotion={loadEmotion}
+      onUpdateEmotionAnalysisConsent={handleUpdateEmotionAnalysisConsent}
+      onRefreshEmotionAnalysisAudits={refreshEmotionAnalysisAudits}
       audioController={audioController}
       audioInputDevices={audioInputDevices}
       audioOutputDevices={audioOutputDevices}

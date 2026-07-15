@@ -1,8 +1,8 @@
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { MemoryRecord } from '../api/types';
-import { MemoryPanel } from './MemoryPanel';
+import { MemoryPanel, numberDraftFromInput } from './MemoryPanel';
 
 const memory: MemoryRecord = {
   id: 'm1',
@@ -37,6 +37,14 @@ afterEach(() => {
 });
 
 describe('MemoryPanel', () => {
+  it('represents an empty numeric input as an empty draft', () => {
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.value = '';
+
+    expect(numberDraftFromInput(input)).toBe('');
+  });
+
   it('renders boundary helper and empty state', () => {
     render(<MemoryPanel memories={[]} candidates={[]} loading={false} error={null} conflicts={[]} onCreate={vi.fn()} onUpdate={vi.fn()} onDelete={vi.fn()} onConfirmCandidate={vi.fn()} onDismissCandidate={vi.fn()} />);
 
@@ -74,6 +82,179 @@ describe('MemoryPanel', () => {
     expect(within(conflictRegion).getByText(/preference · importance 3 · confidence 1.00/)).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: '删除记忆' }));
     expect(onDelete).toHaveBeenCalledWith('m1');
+  });
+
+  it('edits only active memories and cancels without updating', async () => {
+    const onUpdate = vi.fn().mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    render(
+      <MemoryPanel
+        memories={[memory]}
+        candidates={[candidate]}
+        loading={false}
+        error={null}
+        conflicts={[]}
+        onCreate={vi.fn()}
+        onUpdate={onUpdate}
+        onDelete={vi.fn()}
+        onConfirmCandidate={vi.fn()}
+        onDismissCandidate={vi.fn()}
+      />,
+    );
+
+    expect(screen.getAllByRole('button', { name: '编辑记忆' })).toHaveLength(1);
+    await user.click(screen.getByRole('button', { name: '编辑记忆' }));
+
+    expect(screen.getByLabelText('编辑记忆内容')).toHaveValue(memory.content);
+    expect(screen.getByLabelText('编辑记忆类型')).toHaveValue(memory.memory_type);
+    expect(screen.getByLabelText('编辑重要度')).toHaveValue(memory.importance);
+    expect(screen.getByLabelText('编辑可信度')).toHaveValue(memory.confidence);
+
+    await user.click(screen.getByRole('button', { name: '取消编辑' }));
+
+    expect(onUpdate).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText('编辑记忆内容')).not.toBeInTheDocument();
+    expect(screen.getByText(memory.content)).toBeInTheDocument();
+  });
+
+  it('saves trimmed typed values and exits editing after success', async () => {
+    const onUpdate = vi.fn().mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    render(
+      <MemoryPanel
+        memories={[memory]}
+        candidates={[]}
+        loading={false}
+        error={null}
+        conflicts={[]}
+        onCreate={vi.fn()}
+        onUpdate={onUpdate}
+        onDelete={vi.fn()}
+        onConfirmCandidate={vi.fn()}
+        onDismissCandidate={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: '编辑记忆' }));
+    const contentInput = screen.getByLabelText('编辑记忆内容');
+    await user.clear(contentInput);
+    await user.type(contentInput, '  更新后的记忆  ');
+    await user.selectOptions(screen.getByLabelText('编辑记忆类型'), 'user_fact');
+    const importanceInput = screen.getByLabelText('编辑重要度');
+    await user.clear(importanceInput);
+    await user.type(importanceInput, '5');
+    const confidenceInput = screen.getByLabelText('编辑可信度');
+    await user.clear(confidenceInput);
+    await user.type(confidenceInput, '0.8');
+    await user.click(screen.getByRole('button', { name: '保存修改' }));
+
+    expect(onUpdate).toHaveBeenCalledWith('m1', {
+      content: '更新后的记忆',
+      memory_type: 'user_fact',
+      importance: 5,
+      confidence: 0.8,
+    });
+    expect(screen.queryByLabelText('编辑记忆内容')).not.toBeInTheDocument();
+  });
+
+  it('keeps the editor open and shows the shared error when update fails', async () => {
+    const onUpdate = vi.fn().mockRejectedValue(new Error('更新失败'));
+    const user = userEvent.setup();
+    render(
+      <MemoryPanel
+        memories={[memory]}
+        candidates={[]}
+        loading={false}
+        error="更新失败"
+        conflicts={[]}
+        onCreate={vi.fn()}
+        onUpdate={onUpdate}
+        onDelete={vi.fn()}
+        onConfirmCandidate={vi.fn()}
+        onDismissCandidate={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: '编辑记忆' }));
+    await user.click(screen.getByRole('button', { name: '保存修改' }));
+
+    expect(await screen.findByLabelText('编辑记忆内容')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('更新失败');
+  });
+
+  it('disables saving a blank edit', async () => {
+    const onUpdate = vi.fn().mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    render(
+      <MemoryPanel
+        memories={[memory]}
+        candidates={[]}
+        loading={false}
+        error={null}
+        conflicts={[]}
+        onCreate={vi.fn()}
+        onUpdate={onUpdate}
+        onDelete={vi.fn()}
+        onConfirmCandidate={vi.fn()}
+        onDismissCandidate={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: '编辑记忆' }));
+    const contentInput = screen.getByLabelText('编辑记忆内容');
+    await user.clear(contentInput);
+    await user.type(contentInput, '   ');
+
+    expect(screen.getByRole('button', { name: '保存修改' })).toBeDisabled();
+    expect(onUpdate).not.toHaveBeenCalled();
+  });
+
+  it('keeps empty numeric drafts controlled without warning and saves after recovery', async () => {
+    const onUpdate = vi.fn().mockResolvedValue(undefined);
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const user = userEvent.setup();
+    try {
+      render(
+        <MemoryPanel
+          memories={[memory]}
+          candidates={[]}
+          loading={false}
+          error={null}
+          conflicts={[]}
+          onCreate={vi.fn()}
+          onUpdate={onUpdate}
+          onDelete={vi.fn()}
+          onConfirmCandidate={vi.fn()}
+          onDismissCandidate={vi.fn()}
+        />,
+      );
+
+      await user.click(screen.getByRole('button', { name: '编辑记忆' }));
+      const importanceInput = screen.getByLabelText('编辑重要度');
+      const confidenceInput = screen.getByLabelText('编辑可信度');
+
+      fireEvent.change(importanceInput, { target: { value: '', valueAsNumber: Number.NaN } });
+      expect(importanceInput).toHaveValue(null);
+      expect(screen.getByRole('button', { name: '保存修改' })).toBeDisabled();
+
+      await user.type(importanceInput, '5');
+      await user.clear(confidenceInput);
+      expect(confidenceInput).toHaveValue(null);
+      expect(screen.getByRole('button', { name: '保存修改' })).toBeDisabled();
+
+      await user.type(confidenceInput, '0.8');
+      await user.click(screen.getByRole('button', { name: '保存修改' }));
+
+      expect(onUpdate).toHaveBeenCalledWith('m1', {
+        content: memory.content,
+        memory_type: memory.memory_type,
+        importance: 5,
+        confidence: 0.8,
+      });
+      expect(consoleError.mock.calls.flat().join(' ')).not.toContain('Received NaN for the `value` attribute');
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 
   it('renders pending candidates and candidate actions', async () => {

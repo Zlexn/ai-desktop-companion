@@ -26,4 +26,8 @@ async def send_message(
     chat_service: ChatService = Depends(get_chat_service),
 ) -> ChatResponse:
     reply = await chat_service.send_message(session_id, request.content)
-    return ChatResponse(reply=reply.reply, metadata=ChatMetadata(provider=reply.provider, model=reply.model))
+    return ChatResponse(
+        reply=reply.reply,
+        metadata=ChatMetadata(provider=reply.provider, model=reply.model),
+        assistant_message_id=reply.assistant_message_id,
+    )

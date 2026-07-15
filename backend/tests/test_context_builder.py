@@ -1,6 +1,7 @@
+from datetime import UTC, datetime
 from pathlib import Path
 
-from app.domain.models import ChatRole, MemorySource, MemoryType
+from app.domain.models import ChatRole, EmotionState, EmotionVector, MemorySource, MemoryType
 from app.providers.base import LLMMessage
 from app.repositories.memories import MemoryRepository
 from app.repositories.memory_embeddings import MemoryEmbeddingRepository
@@ -9,6 +10,85 @@ from app.repositories.sessions import SessionRepository
 from app.repositories.sqlite import managed_connection
 from app.services.context_builder import ContextBuilder
 from app.services.memory_embedding_service import FakeMemoryEmbeddingProvider, MemoryEmbeddingService, MemoryEmbeddingUnavailableError
+
+
+class RecordingEmotionFormatter:
+    def __init__(self) -> None:
+        self.seen_state: EmotionState | None = None
+
+    def format(self, state: EmotionState) -> str:
+        self.seen_state = state
+        return "emotion context"
+
+
+def test_emotion_context_formats_only_caller_supplied_snapshot(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'caller-snapshot.db'}"
+    with managed_connection(database_url) as connection:
+        snapshot = EmotionState(
+            "default-companion",
+            True,
+            EmotionVector(0.5, 0.4, 0.2, 0.55, 0.1, 0.6),
+            7,
+            datetime.now(UTC),
+        )
+        formatter = RecordingEmotionFormatter()
+        builder = ContextBuilder(
+            MessageRepository(connection),
+            12,
+            emotion_context_formatter=formatter,
+        )
+
+        context = builder.build_emotion_context(snapshot)
+
+        assert formatter.seen_state is snapshot
+        assert context == [LLMMessage(role=ChatRole.SYSTEM, content="emotion context")]
+
+
+def test_build_context_preserves_emotion_memory_history_order(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'ordered-context.db'}"
+    with managed_connection(database_url) as connection:
+        sessions = SessionRepository(connection)
+        messages = MessageRepository(connection)
+        memories = MemoryRepository(connection)
+        session = sessions.create("ordered")
+        messages.add(session.id, ChatRole.USER, "history")
+        memories.create(
+            content="memory",
+            memory_type=MemoryType.OTHER,
+            source=MemorySource.MANUAL,
+            source_session_id=None,
+            importance=3,
+            confidence=1.0,
+            metadata={},
+        )
+        snapshot = EmotionState(
+            "default-companion",
+            True,
+            EmotionVector(0.5, 0.4, 0.2, 0.55, 0.1, 0.6),
+            7,
+            datetime.now(UTC),
+        )
+        builder = ContextBuilder(
+            messages,
+            12,
+            memories=memories,
+            emotion_context_formatter=RecordingEmotionFormatter(),
+        )
+
+        context = builder.build_context(
+            session.id,
+            emotion_context=builder.build_emotion_context(snapshot),
+        )
+
+        assert [message.role for message in context] == [
+            ChatRole.SYSTEM,
+            ChatRole.SYSTEM,
+            ChatRole.USER,
+        ]
+        assert context[0].content == "emotion context"
+        assert "memory" in context[1].content
+        assert context[2].content == "history"
+
 
 
 def test_context_builder_returns_recent_messages_in_chronological_order(tmp_path: Path) -> None:

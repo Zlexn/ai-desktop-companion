@@ -1,9 +1,10 @@
 from typing import Protocol
 
-from app.domain.models import ChatRole, Memory
+from app.domain.models import ChatRole, EmotionState, Memory
 from app.providers.base import LLMMessage
 from app.repositories.memories import MemoryRepository
 from app.repositories.messages import MessageRepository
+from app.services.emotion_context import EmotionContextFormatterProtocol
 
 
 class MemoryEmbeddingSearch(Protocol):
@@ -24,6 +25,7 @@ class ContextBuilder:
         memory_retrieval_fallback_limit: int = 3,
         memory_embedding_service: MemoryEmbeddingSearch | None = None,
         memory_embedding_min_score: float = 0.35,
+        emotion_context_formatter: EmotionContextFormatterProtocol | None = None,
     ) -> None:
         self._messages = messages
         self._max_messages = max_messages
@@ -34,6 +36,7 @@ class ContextBuilder:
         self._memory_retrieval_fallback_limit = memory_retrieval_fallback_limit
         self._memory_embedding_service = memory_embedding_service
         self._memory_embedding_min_score = memory_embedding_min_score
+        self._emotion_context_formatter = emotion_context_formatter
 
     def build_recent_context(self, session_id: str) -> list[LLMMessage]:
         recent_messages = self._messages.list_recent(session_id, self._max_messages)
@@ -78,8 +81,27 @@ class ContextBuilder:
         lines.extend(self._format_memory(memory) for memory in memories)
         return [LLMMessage(role=ChatRole.SYSTEM, content="\n".join(lines))]
 
-    def build_context(self, session_id: str, query: str | None = None) -> list[LLMMessage]:
-        return [*self.build_memory_context(query=query), *self.build_recent_context(session_id)]
+    def build_emotion_context(self, snapshot: EmotionState | None) -> list[LLMMessage]:
+        if snapshot is None or self._emotion_context_formatter is None:
+            return []
+        try:
+            content = self._emotion_context_formatter.format(snapshot)
+        except Exception:
+            return []
+        return [LLMMessage(role=ChatRole.SYSTEM, content=content)] if content else []
+
+    def build_context(
+        self,
+        session_id: str,
+        query: str | None = None,
+        *,
+        emotion_context: list[LLMMessage] | None = None,
+    ) -> list[LLMMessage]:
+        return [
+            *(emotion_context or []),
+            *self.build_memory_context(query=query),
+            *self.build_recent_context(session_id),
+        ]
 
     def _format_memory(self, memory: Memory) -> str:
         return (
