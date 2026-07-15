@@ -54,7 +54,7 @@
 
 阶段 4 总体验收于 2026-07-15 **VERIFIED PASS（fake-first）**。4A–4E 共同满足有界、可解释、可衰减、可查看/重置/关闭的情感状态，以及文本、message-bound TTS/ExpressionPlan 和精确 playback run 表现消费的一致性要求；完整 Python、前端、浏览器 E2E、隔离 runtime、数据库不变量和独立审查证据见 `docs/stage4-emotion-acceptance-audit.md`。
 
-Stage 4 已关闭。Windows 11 Electron 双窗口桌面壳是独立的下一展示层任务；其设计已批准，将在阶段 4 关闭提交后单独形成书面规格并进入用户复核，目前尚未实施。不得据此声称 Live2D、生产打包、后台监听、真实声学表现质量或受保护角色素材已经完成。
+Stage 4 已关闭。Windows 11 Electron 双窗口桌面壳是独立的下一展示层任务，批准设计见 `docs/superpowers/specs/2026-07-15-windows-electron-dual-window-shell-design.md`；它尚未实施。不得据此声称 Live2D、生产打包、后台监听、真实声学表现质量或受保护角色素材已经完成。
 
 ### Stage 3F memory embedding retrieval
 

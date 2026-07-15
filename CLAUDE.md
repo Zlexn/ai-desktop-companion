@@ -142,7 +142,7 @@ Stage 4A 本地状态基础、Stage 4B 文本表达闭环、Stage 4C LLM 辅助�
 
 独立的 Windows 11 Electron 双窗口桌面壳：保留现有 React/FastAPI 内核和聊天 renderer 的唯一业务/播放状态所有权，增加系统托盘、透明悬浮窗口、置顶、拖动、可切换鼠标穿透、版本化只读表现投影，以及用户本地授权静态 PNG/WebP 的受控导入。
 
-该桌面壳设计已获用户批准，将在阶段 4 关闭提交后单独写入并提交书面规格。在用户复核该书面规格并批准文件级实施计划前，不实现 Electron 产品代码。Live2D 是其后的独立设计、计划和验收闭环。
+该桌面壳设计已获用户批准，书面规格位于 `docs/superpowers/specs/2026-07-15-windows-electron-dual-window-shell-design.md`。在用户复核该书面规格并批准文件级实施计划前，不实现 Electron 产品代码。Live2D 是其后的独立设计、计划和验收闭环。
 
 ## 11. 每个开发任务的流程
 1. 读取本文件并输出任务对齐信息。

@@ -1,7 +1,7 @@
 # 雪之下雪乃 AI 桌宠总体路线设计
 
 > 日期：2026-07-11  
-> 状态：总体路线已批准；3M、阶段 3 和阶段 4 均已完成并关闭；Windows Electron 双窗口桌面壳设计已批准，待单独书面规格复核与实施计划
+> 状态：总体路线已批准；3M、阶段 3 和阶段 4 均已完成并关闭；Windows Electron 双窗口桌面壳专项设计已批准，待书面复核与实施计划
 > 项目根：`AI桌宠/`
 
 ## 1. 目标与诚实边界
@@ -71,7 +71,7 @@
 
 在保留现有 React/FastAPI 内核的前提下增加 Windows 桌面壳。首个专项闭环已选定 Electron 开发态双窗口：聊天 renderer 保持唯一业务与播放状态源，透明 pet renderer 只消费经主进程校验的版本化只读表现快照；提供系统托盘、显示/隐藏、置顶、拖动、可切换鼠标穿透，以及用户本地授权静态 PNG/WebP 的受控导入。
 
-Windows 双窗口桌面壳设计已获用户批准，将在阶段 4 关闭提交后单独写入专项规格。本闭环不托管 FastAPI/Vite、不生产打包，也不实现 Live2D。Live2D Cubism、其他 2D 引擎或自研动画层在其后的独立阶段比较许可证、Windows 支持、资源占用和打包方式；正式目标角色素材必须在本地合法提供，自动化测试继续使用原创中性素材。
+专项设计见 `docs/superpowers/specs/2026-07-15-windows-electron-dual-window-shell-design.md`。本闭环不托管 FastAPI/Vite、不生产打包，也不实现 Live2D。Live2D Cubism、其他 2D 引擎或自研动画层在其后的独立阶段比较许可证、Windows 支持、资源占用和打包方式；正式目标角色素材必须在本地合法提供，自动化测试继续使用原创中性素材。
 
 ## 5. 组件边界
 
@@ -216,6 +216,6 @@ SQLite 继续分别存储聊天消息、会话摘要、长期记忆、候选、e
 
 ## 12. 下一步
 
-3M、阶段 3 和阶段 4 已完成并关闭。下一步先把已经批准的 Windows Electron 双窗口桌面壳设计单独写入专项规格，再由用户复核该书面规格。
+3M、阶段 3 和阶段 4 已完成并关闭。下一步先由用户复核已经批准并落盘的 Windows Electron 双窗口桌面壳专项规格：`docs/superpowers/specs/2026-07-15-windows-electron-dual-window-shell-design.md`。
 
 书面规格确认后调用 `writing-plans` 创建详细文件级实施计划，再按 TDD 实施开发态桌面壳。不得在该计划中顺带实现 Live2D、Python sidecar、安装包、后台监听或未授权角色素材。
