@@ -144,7 +144,7 @@ interface PresentationSnapshotV1 {
     delivery: 'neutral' | 'warm' | 'reassuring' | 'reserved' | 'firm';
     intensity: 'low' | 'medium';
     rate: number;
-    source: 'rule' | 'llm' | 'default';
+    source: 'persisted_plan' | 'default';
   } | null;
   phase: 'idle' | 'ready' | 'speaking' | 'paused';
   activeRun: {
