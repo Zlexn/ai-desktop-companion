@@ -142,7 +142,7 @@ interface PresentationSnapshotV1 {
   selectedAssistantMessageId: string | null;
   expression: {
     delivery: 'neutral' | 'warm' | 'reassuring' | 'reserved' | 'firm';
-    intensity: 'low' | 'medium' | 'high';
+    intensity: 'low' | 'medium';
     rate: number;
     source: 'rule' | 'llm' | 'default';
   } | null;
