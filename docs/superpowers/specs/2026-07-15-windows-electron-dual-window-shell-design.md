@@ -141,6 +141,7 @@ interface PresentationSnapshotV1 {
   sequence: number;
   selectedAssistantMessageId: string | null;
   expression: {
+    assistantMessageId: string;
     delivery: 'neutral' | 'warm' | 'reassuring' | 'reserved' | 'firm';
     intensity: 'low' | 'medium';
     rate: number;
@@ -163,10 +164,11 @@ interface PresentationSnapshotV1 {
 
 ### 5.3 投影不变量
 
-- `projectionEpoch` 是由主进程为当前 chat `webContents` 分配的非负安全整数。chat renderer 不能自行选择 epoch；它通过 chat preload 取得当前 epoch，并把它原样带入发布请求。chat reload、crash 或 `webContents` replacement 时，主进程先递增 epoch、清除 latest snapshot，再向 pet 发送原子 reset；pet 必须清除表现状态和 sequence watermark，回到 Neutral/Idle，然后才接受新 epoch 的快照。
-- `sequence` 在一个 `projectionEpoch` 内严格递增，并由 chat renderer 从 1 开始；不写磁盘。主进程只接受当前分配 epoch，且拒绝该 epoch 内低于或等于当前值的旧 sequence。
+- `projectionEpoch` 是由主进程为当前 chat document generation 分配的非负安全整数。chat renderer 不能自行选择 epoch；它通过 chat preload 取得权威 cursor，并把 epoch 原样带入发布请求。主进程由窗口/投影 broker 维护显式 generation 状态机：初始 document 建立 generation；`did-start-loading` 打开下一 generation 并执行该 generation 唯一一次 reset；同一 transition 随后的 `render-process-gone`、`destroyed` 或 replacement 不能重复递增；`did-finish-load` 标记 generation 已就绪并为下一次独立 navigation 重新布防。crash/replacement 若发生在没有先收到 `did-start-loading` 的 generation，则执行该 generation 的唯一 invalidation。每次真实 document transition 都先递增 epoch、清除 latest snapshot/sequence，再向 pet 发送原子 reset；pet 清除表现状态和 watermark、回到 Neutral/Idle，然后新 document 才能取得 cursor 并发布。
+- `sequence` 在一个 `projectionEpoch` 内严格递增，并由 chat renderer 发布；不写磁盘。主进程维护权威 cursor `{ projectionEpoch, lastAcceptedSequence }`。chat 首次 mount、Vite Fast Refresh/remount 或收到 stale-sequence 拒绝后必须重新读取 cursor，把下一 sequence 设为 `lastAcceptedSequence + 1`，并串行发送快照；成功发布的 ack 返回更新后 cursor。主进程只接受当前 epoch，且拒绝该 epoch 内低于或等于当前值的旧 sequence。
 - pet 按 `(projectionEpoch, sequence)` 排序：低于当前 epoch 的快照永远拒绝；更高的合法 epoch 必须先经主进程 reset；同 epoch 只接受更高 sequence。Vite HMR、chat reload 和 crash recovery 必须覆盖该握手，避免新 renderer 从低 sequence 开始后被永久拒绝。
 - `activeRun` 继续使用 `(assistantMessageId, playbackRunId)` 精确身份；pause/resume 沿用同一 run，replay 创建新 run。
+- expression 保留现有 Stage 4E 的 `assistantMessageId` 绑定。非 Idle 快照必须满足 `expression.assistantMessageId === selectedAssistantMessageId`；Speaking/Paused 还必须满足 `activeRun.assistantMessageId === selectedAssistantMessageId`。该 ID 只用于 main/pet 状态一致性校验，不传给 `StaticImageRenderer` 的 `CharacterPresentation`，也不显示或持久化。
 - expression、phase、activeRun 和 selected message 必须满足现有 Stage 4E 状态不变量；不得把不一致组合中继给 pet。
 - `displayLabel` 只能使用现有内存中已截断的显示标签；不得发送完整消息、prompt、memory、Provider payload 或音频。
 - chat preload 在把快照送入主进程前覆盖/注入当前 `projectionEpoch`；renderer 提供不匹配 epoch 的请求必须被拒绝，不能跨 renderer instance 伪造顺序。
@@ -200,11 +202,12 @@ Idle → Ready → Speaking ↔ Paused
 1. 聊天 renderer 调用固定 preload 方法打开原生单文件选择器；
 2. 选择器只列出 `.png` 与 `.webp`，但主进程仍独立验证；
 3. 主进程验证扩展名、文件签名或 MIME、可解码性、静态约束、字节数和像素尺寸；
-4. 主进程生成随机 opaque asset ID 和内部文件名；
-5. 使用临时文件原子复制到 `app.getPath('userData')/assets`；
-6. 原子更新小型 manifest；
-7. 复制与 manifest 全部成功后才切换 active asset 和递增 `assetRevision`；
-8. 任一步失败都保留旧素材。
+4. 所有 import/clear 操作进入 asset store 的单一异步队列，在队列内重新读取当前 manifest 并分配唯一递增 revision，禁止并发 mutation 交错；
+5. 主进程生成随机 opaque asset ID 和内部文件名；
+6. 使用临时文件原子复制到 `app.getPath('userData')/assets`；
+7. 原子更新小型 manifest；
+8. 复制与 manifest 全部成功后才切换 active asset 和递增 `assetRevision`；
+9. 任一步失败都保留旧素材；若内部文件已 rename 但 manifest 替换失败，事务必须删除新 orphan，删除失败则记录固定错误码并在下次启动清理所有未被合法 manifest 引用的内部文件。
 
 首轮固定上限：
 
@@ -217,7 +220,7 @@ Idle → Ready → Speaking ↔ Paused
 
 ### 7.3 本地 manifest
 
-manifest 只保存：
+manifest 是 active asset 的唯一事实来源。读取时使用 exact-object parser：损坏 JSON、多余/缺失字段、不兼容版本、非法 opaque ID、路径分隔符/遍历、kind/ID/fileName 不一致或 active 文件缺失均降级为 neutral manifest；坏文件被隔离为不含用户原文件名的固定前缀文件。启动时删除临时文件和所有未被当前合法 manifest 引用的内部 orphan。manifest 只保存：
 
 - manifest schema version；
 - active opaque asset ID；
@@ -338,6 +341,8 @@ Interactive（默认） ↔ Click-through
 
 两个窗口均必须：
 
+- Electron runtime `main.mjs` 只做最小 bootstrap，不作为 Node 测试目标；userData override validator 和 application composition 分别位于不静态导入 Electron 的纯模块中，通过注入 facade 测试。主入口在 `app.whenReady()` 和任何 settings/asset 初始化前读取可选 smoke-only `ELECTRON_USER_DATA_DIR`。可信路径由纯模块按 `path.join(os.tmpdir(), 'ai-desktop-pet-smoke', runId, 'userData')` 独立重建；只有同时存在合法 `ELECTRON_SMOKE_RUN_ID` 且环境路径与该规范化绝对路径完全相等时才调用 `app.setPath('userData', path)`。普通开发不设置这些变量；相对、非规范化、marker 缺失或不相等的值阻止启动，不回退到真实用户目录。settings、manifest、asset scheme 和 cleanup verifier 必须全部从最终 `app.getPath('userData')` 派生；
+
 - `nodeIntegration: false`；
 - `contextIsolation: true`；
 - `sandbox: true`；
@@ -348,19 +353,21 @@ Interactive（默认） ↔ Click-through
 
 ### 10.2 Content Security Policy 与网络出口
 
-开发态 renderer 必须设置显式 CSP 和 Electron `webRequest`/导航策略，而不是只依赖 sandbox：
+开发态 renderer 必须设置显式 CSP 和 Electron `webRequest`/导航策略，而不是只依赖 sandbox。Electron 与 Vite 共同读取一个规范化的 `http://127.0.0.1:<port>` origin；Vite 必须按同一 host/port 启动并启用 `strictPort`，不接受 `localhost` 别名或任意 loopback 端口。策略要求：
 
 - `default-src 'none'` 作为基线；
-- `script-src`、`style-src` 只允许 Vite 开发所需的精确来源和最小开发例外，实施计划必须记录 Vite 实际产生的 directive，禁止宽泛 `*`；
-- `connect-src` 只允许精确 Vite origin、Vite HMR 的精确 `ws://127.0.0.1:<port>`/`ws://localhost:<port>`，以及经 Vite 同源 proxy 访问的 `/api` 与 `/health`；renderer 不直接连接任意远端或 FastAPI LAN 地址；
+- `script-src` 只允许 Vite 同源脚本和一个固定开发壳 nonce；Vite `html.cspNonce` 必须把同一 nonce 应用于 React Fast Refresh 注入的 module preamble 及生成脚本，CSP 使用匹配的 `'nonce-…'`。该 nonce 只用于 loopback 开发态且不替代外部请求封锁；禁止 `unsafe-inline` 和宽泛 `*`；
+- `connect-src` 对 chat 只允许精确 Vite origin、由同一配置派生的精确 `ws://127.0.0.1:<port>` HMR origin，以及经 Vite 同源 proxy 访问的 `/api` 与 `/health`；pet 只额外允许同一个 HMR WebSocket，不允许 HTTP API 或其他网络连接；
 - `img-src` 只允许同源、`pet-asset:` 和必要的 `data:` fixture；
 - `media-src` 只允许同源与现有 TTS playback 所需的 `blob:`；
 - `frame-src 'none'`、`object-src 'none'`、`base-uri 'none'`、`form-action 'none'`；
-- pet renderer 使用更严格策略：除自身 bundle/style 和 `pet-asset:` 外不允许网络连接、媒体、frame、form 或远端图片。
+- pet renderer 使用更严格策略：除自身 bundle/style、`pet-asset:` 和精确 Vite HMR WebSocket 外，不允许 HTTP API、媒体、frame、form 或远端图片。
 
 主进程对 renderer 请求增加 scheme/host/port 白名单并拒绝所有外部 HTTP(S)、WebSocket、图片、frame、下载和重定向出口。开发 HMR 只允许配置中已知的 loopback 端口；不接受任意 loopback 端口或通配域名。测试必须证明外部 `fetch`、图片 beacon、导航、popup 和 download 被拒绝，同时 Vite HMR、同源 API proxy、`blob:` 音频和 `pet-asset:` 仍工作。
 
 ### 10.3 IPC 校验
+
+主进程与 renderer 共享并严格验证一个非敏感 `DesktopStateV1`：`schemaVersion`、`petVisible`、`petAlwaysOnTop`、`petClickThrough`、`asset: { kind, assetRevision }` 和固定 `errorCode | null`。禁止包含 asset ID/path/fileName、snapshot、message/run ID 或任意文本内容。
 
 每个 IPC handler 必须验证：
 
