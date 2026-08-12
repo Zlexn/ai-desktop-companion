@@ -1,7 +1,7 @@
 # 虚拟角色交互系统：项目总纲
-> 版本：1.1
-> 当前阶段：**阶段 4——情感系统（COMPLETED；2026-07-15 总体验收 VERIFIED PASS（fake-first））；NEXT: Windows 11 Electron 双窗口桌面壳最小闭环**
-> 更新日期：2026-07-15
+> 版本：1.4
+> 当前阶段：**阶段 1–4、Gate A/Gate B/Gate C1/Gate C2 均已完成；Gate C3 Tasks 1–8 已完成，Task 9 待实施**
+> 更新日期：2026-07-30
 
 ## 1. 强制执行协议
 Claude 在处理本项目的每一个新任务前必须：
@@ -140,9 +140,20 @@ Stage 4A 本地状态基础、Stage 4B 文本表达闭环、Stage 4C LLM 辅助�
 
 ### 下一最小完整闭环
 
-独立的 Windows 11 Electron 双窗口桌面壳：保留现有 React/FastAPI 内核和聊天 renderer 的唯一业务/播放状态所有权，增加系统托盘、透明悬浮窗口、置顶、拖动、可切换鼠标穿透、版本化只读表现投影，以及用户本地授权静态 PNG/WebP 的受控导入。
+用户于 2026-07-16 明确将“自动长期记忆与角色一致性增强”置于 Windows Electron 桌面壳之前。该任务是 Stage 3 完成后的独立增强闭环，不改写阶段 3 的历史验收结论，也不把新增能力倒灌为原 Stage 3 验收范围。
 
-该桌面壳设计已获用户批准，书面规格位于 `docs/superpowers/specs/2026-07-15-windows-electron-dual-window-shell-design.md`。在用户复核该书面规格并批准文件级实施计划前，不实现 Electron 产品代码。Live2D 是其后的独立设计、计划和验收闭环。
+已批准的总设计位于 `docs/superpowers/specs/2026-07-16-automatic-memory-persona-consistency-enhancement-design.md`。为遵守最小闭环原则，增强工作分成三个必须分别计划、实现、自检、验收并经用户确认后才可继续的闸门：
+
+1. **Gate A（COMPLETED，2026-07-19）**：兼容 schema、本地 Memory Governor、互斥运行模式和 metadata-only shadow mode 已完成并验收；未自动写入 active 记忆，未注入摘要，未改变角色/关系投影。验收证据见 `docs/automatic-memory-gate-a-acceptance-2026-07-19.md`。
+2. **Gate B（COMPLETED，2026-07-21）**：版本化自动写入、Evidence、双授权隔离、冲突状态机、删除 generation/tombstone、防复活、并发/恢复屏障和最小 MemoryPanel 已完成；总体验收与隐私契约通过，独立终审 `APPROVED`。验收证据见 `docs/automatic-memory-gate-b-acceptance-2026-07-21.md`。
+3. **Gate C（分闸门实施）**：
+   - **Gate C1（COMPLETED，2026-07-22）**：不可变 Persona artifact、确定性 Context Composer、reply/job Persona provenance、C2 前远程摘要零构造/零发送 fence 与最小 PersonaPanel 已完成；总体验收与隐私契约通过，独立终审 `APPROVED`。证据见 `docs/automatic-memory-gate-c1-acceptance-2026-07-22.md`。
+   - **Gate C2（COMPLETED，2026-07-25）**：受控摘要生成/注入、独立 consent、撤回、失效、redaction/rebuild、safe API 与最小独立 SummaryPanel 已完成；HTTP smoke、privacy contract、完整回归均通过，独立终审 `APPROVED`。验收证据见 `docs/automatic-memory-gate-c2-acceptance-2026-07-25.md`。
+   - **Gate C3（Tasks 1–8 已完成；Task 9 待实施）**：关系事件账本、确定性投影、UI 与角色一致性评估；设计与文件级 TDD 计划均已独立批准，生产实施已获继续授权。Tasks 1–2 已完成契约、bounded 配置、domain types 与显式 `canonical_subject_code` API 类型；Task 3 已完成事务性 SQLite migration、显式 subject type/code 约束、append-only/guarded redaction、authority/lineage epoch、projection CAS 与 migration rollback 数据库不变量；Task 4 已将显式 `canonical_subject_code` 持久化到所有 Gate B memory-version 写入路径，完成 omitted/preserve、explicit null/clear、manual/candidate/conflict/revert/archive/delete-head 传播、coded canonical hashing 与 automatic proposal 永不分类边界；Task 5 已完成精确 current-head source snapshots、独立 tuple recheck、严格 storage-type fail-closed、Evidence/summary/emotion/provider 排除及纯 allowlisted relationship rules；Task 6 已完成 append-only linear authority decisions、generation/predecessor/epoch stale checks、完整双亲传递 lineage closure、私有 inherited fingerprint、resolved-key re-enable override 与 parent/lineage 变更失效、cycle/corrupt fail-closed；Task 7 已完成事务绑定且幂等的 relationship apply/revoke ledger operations、完整 source/authority tuple commit recheck、active event canonical/integrity fail-closed 验证，以及 one-use guard 约束且不可恢复的 preferred-address payload redaction；Task 8 已完成稳定语义排序、source/authority/rule/integrity 重验证、bounded familiarity fold、仅存 event ID 的 preferred-address winner、不可变 projection snapshots、CAS active pointer、Persona provenance、verified view 与 neutral fail-closed。Tasks 1–8 均经独立审阅 `APPROVED`。Task 9 尚未实施，后续任务不得提前实现。设计位于 `docs/superpowers/specs/2026-07-21-automatic-memory-gate-c3-relationship-projection-design.md`，计划位于 `docs/superpowers/plans/2026-07-26-automatic-memory-gate-c3-relationship-projection.md`。
+
+Windows Electron 双窗口桌面壳的已批准设计继续有效，但暂缓到上述增强闭环验收之后；书面规格位于 `docs/superpowers/specs/2026-07-15-windows-electron-dual-window-shell-design.md`。Live2D 仍是 Electron 壳之后的独立设计、计划和验收闭环。
+
+Gate C1/C2 已完成并通过独立终审。Gate C3 的设计与文件级计划已批准，生产实施已获继续授权，但仍须严格逐 Task 实施、自检、审阅与验收；Tasks 1–8 已完成并分别通过独立审阅，Task 9 待实施，后续任务不得提前完成。自动写入确认、远程记忆抽取、远程情感分析与远程摘要处理继续保持相互独立的持久、明确、可撤回授权；任何环境配置均不能替代 consent。
 
 ## 11. 每个开发任务的流程
 1. 读取本文件并输出任务对齐信息。

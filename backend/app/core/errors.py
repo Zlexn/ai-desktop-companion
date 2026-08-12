@@ -38,6 +38,30 @@ class ValidationAppError(AppError):
     status_code = HTTPStatus.BAD_REQUEST
 
 
+class MemoryConflictRequiresResolutionError(AppError):
+    code = "conflict_requires_resolution"
+    message = "该记忆存在待解决冲突，请先处理冲突。"
+    status_code = HTTPStatus.CONFLICT
+
+
+class MemoryCandidateForgottenError(AppError):
+    code = "candidate_forgotten"
+    message = "该候选记忆已被忘记，无法恢复。"
+    status_code = HTTPStatus.GONE
+
+
+class MemoryConflictStaleError(AppError):
+    code = "conflict_stale"
+    message = "冲突状态已变化，请刷新后重试。"
+    status_code = HTTPStatus.CONFLICT
+
+
+class MemoryNoUndoableAutoOperationError(AppError):
+    code = "no_undoable_auto_operation"
+    message = "没有可撤销的最近自动记忆变化。"
+    status_code = HTTPStatus.CONFLICT
+
+
 class ExpressionMessageRoleError(AppError):
     code = "expression_message_not_assistant"
     message = "只能查询助手消息的表达。"
@@ -47,6 +71,42 @@ class ExpressionMessageRoleError(AppError):
 class InternalServerError(AppError):
     code = "internal_error"
     message = "请求处理失败，请稍后重试。"
+    status_code = HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+class PersonaIntegrityError(AppError):
+    code = "persona_integrity_error"
+    message = "角色配置完整性验证失败。"
+    status_code = HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+class PersonaVersionConflictError(AppError):
+    code = "persona_version_conflict"
+    message = "角色配置已变化，请刷新后重试。"
+    status_code = HTTPStatus.CONFLICT
+
+
+class PersonaStartupError(AppError):
+    code = "persona_startup_error"
+    message = "角色配置无法安全加载。"
+    status_code = HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+class SummaryAuthorityStateError(AppError):
+    code = "summary_authority_state_error"
+    message = "摘要授权状态无法安全读取。"
+    status_code = HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+class SummaryAuthorityVersionConflictError(AppError):
+    code = "summary_authority_version_conflict"
+    message = "摘要授权状态已变化，请刷新后重试。"
+    status_code = HTTPStatus.CONFLICT
+
+
+class ContextBudgetInvariantError(AppError):
+    code = "context_budget_invariant_error"
+    message = "上下文预算校验失败。"
     status_code = HTTPStatus.INTERNAL_SERVER_ERROR
 
 

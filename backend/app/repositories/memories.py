@@ -3,13 +3,22 @@ from __future__ import annotations
 import re
 import sqlite3
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Any
 
-from app.core.errors import NotFoundError
-from app.domain.models import Memory, MemorySource, MemoryStatus, MemoryType
+from app.core.errors import MemoryCandidateForgottenError, NotFoundError
+from app.domain.models import (
+    Memory,
+    MemoryRecordState,
+    MemorySource,
+    MemoryStatus,
+    MemoryType,
+    MemoryVersionSourceKind,
+)
+from app.repositories.memory_eligibility import MEMORY_ELIGIBLE_PREDICATE
 from app.repositories.sqlite import metadata_from_json, metadata_to_json
+from app.services.memory_source_reference import MemorySourceReferenceService
 
 
 def _now() -> datetime:
@@ -40,6 +49,20 @@ _TYPE_HINTS: dict[MemoryType, tuple[str, ...]] = {
     MemoryType.IMPORTANT_EVENT: ("发生", "那次", "事件", "重要", "记得那天"),
     MemoryType.RELATIONSHIP_EVENT: ("关系", "认识", "一起", "我们", "相处"),
 }
+
+
+@dataclass(frozen=True)
+class StructuredMemoryContextSource:
+    memory_id: str
+    current_version_id: str | None
+    source_kind: MemoryVersionSourceKind
+    content: str
+    memory_type: MemoryType
+    importance: int
+    confidence: float
+    updated_at: datetime
+    relevance_score: float
+    legacy_compat: bool
 
 
 @dataclass(frozen=True)
@@ -122,6 +145,10 @@ def _semantic_signature(content: str, memory_type: MemoryType) -> MemorySemantic
         if like:
             value = _normalize_semantic_value(like.group(1))
             return MemorySemanticSignature("preference", value, "like") if value else None
+        prefer = re.fullmatch(r"用户偏好(.+?)[。.]?", clean)
+        if prefer:
+            value = _normalize_semantic_value(prefer.group(1))
+            return MemorySemanticSignature("preference", value, "like") if value else None
         return None
 
     if memory_type == MemoryType.USER_FACT:
@@ -154,6 +181,23 @@ def _semantic_signature(content: str, memory_type: MemoryType) -> MemorySemantic
     return None
 
 
+_PREFERENCE_CATEGORY_PREFIXES: dict[str, tuple[str, ...]] = {
+    "热饮": ("热",),
+}
+
+
+def _preference_values_overlap(candidate: str, existing: str) -> bool:
+    if candidate == existing:
+        return True
+    return any(
+        existing.startswith(prefix)
+        for prefix in _PREFERENCE_CATEGORY_PREFIXES.get(candidate, ())
+    ) or any(
+        candidate.startswith(prefix)
+        for prefix in _PREFERENCE_CATEGORY_PREFIXES.get(existing, ())
+    )
+
+
 def _semantic_conflict(
     candidate: MemorySemanticSignature | None,
     existing: MemorySemanticSignature | None,
@@ -165,7 +209,10 @@ def _semantic_conflict(
         return False
 
     if memory_type == MemoryType.PREFERENCE:
-        return candidate.value == existing.value and candidate.polarity != existing.polarity
+        return (
+            _preference_values_overlap(candidate.value, existing.value)
+            and candidate.polarity != existing.polarity
+        )
 
     if memory_type == MemoryType.USER_FACT:
         return candidate.value != existing.value
@@ -225,6 +272,10 @@ def _metadata_with_timestamp(metadata: dict[str, Any], key: str, value: datetime
 
 
 def _row_to_memory(row: sqlite3.Row) -> Memory:
+    v2_state = row["v2_state"] if "v2_state" in row.keys() else None
+    v2_source_kind = (
+        row["v2_source_kind"] if "v2_source_kind" in row.keys() else None
+    )
     return Memory(
         id=row["id"],
         content=row["content"],
@@ -237,12 +288,153 @@ def _row_to_memory(row: sqlite3.Row) -> Memory:
         created_at=_from_iso(row["created_at"]),
         updated_at=_from_iso(row["updated_at"]),
         metadata=metadata_from_json(row["metadata_json"]),
+        v2_state=MemoryRecordState(v2_state) if v2_state is not None else None,
+        v2_source_kind=(
+            MemoryVersionSourceKind(v2_source_kind)
+            if v2_source_kind is not None
+            else None
+        ),
+        version_count=(
+            int(row["version_count"])
+            if "version_count" in row.keys()
+            else 0
+        ),
+        evidence_count=(
+            int(row["evidence_count"])
+            if "evidence_count" in row.keys()
+            else 0
+        ),
+        has_open_conflict=(
+            bool(row["has_open_conflict"])
+            if "has_open_conflict" in row.keys()
+            else False
+        ),
+        can_undo_latest_auto=(
+            bool(row["can_undo_latest_auto"])
+            if "can_undo_latest_auto" in row.keys()
+            else False
+        ),
+        canonical_subject_code=(
+            row["canonical_subject_code"]
+            if "canonical_subject_code" in row.keys()
+            else None
+        ),
     )
 
 
 class MemoryRepository:
-    def __init__(self, connection: sqlite3.Connection) -> None:
+    _SUMMARY_SELECT = """
+        SELECT memory.id, memory.content, memory.memory_type, memory.source,
+               memory.source_session_id, memory.importance, memory.confidence,
+               memory.status, memory.metadata_json, memory.created_at,
+               memory.updated_at, state.state AS v2_state,
+               state.source_kind AS v2_source_kind,
+               current_version.canonical_subject_code AS canonical_subject_code,
+               (
+                   SELECT COUNT(*) FROM memory_versions AS summary_version
+                   WHERE summary_version.memory_id = memory.id
+               ) AS version_count,
+               (
+                   SELECT COUNT(*) FROM memory_evidence AS summary_evidence
+                   WHERE summary_evidence.memory_id = memory.id
+               ) AS evidence_count,
+               EXISTS (
+                   SELECT 1 FROM memory_conflicts AS conflict
+                   WHERE conflict.status = 'open'
+                     AND memory.id IN (
+                         conflict.left_memory_id,
+                         conflict.right_memory_id
+                     )
+               ) AS has_open_conflict,
+               EXISTS (
+                   SELECT 1
+                   FROM memory_write_activities AS activity
+                   WHERE activity.op_id = (
+                       SELECT latest.op_id
+                       FROM memory_write_activities AS latest
+                       WHERE latest.memory_id = memory.id
+                         AND latest.outcome IN (
+                             'committed_create',
+                             'committed_supersede',
+                             'committed_support'
+                         )
+                       ORDER BY latest.created_at DESC, latest.op_id DESC
+                       LIMIT 1
+                   )
+                     AND NOT EXISTS (
+                         SELECT 1 FROM memory_conflicts AS undo_conflict
+                         WHERE undo_conflict.status = 'open'
+                           AND memory.id IN (
+                               undo_conflict.left_memory_id,
+                               undo_conflict.right_memory_id
+                           )
+                     )
+                     AND NOT EXISTS (
+                         SELECT 1 FROM memory_audit_events AS audit
+                         WHERE audit.event_type = 'auto_change_undone'
+                           AND audit.operation = 'undo_auto'
+                           AND json_extract(audit.metadata_json, '$.auto_op_id') =
+                               activity.op_id
+                     )
+                     AND (
+                         (
+                             activity.outcome = 'committed_create'
+                             AND state.state = 'active'
+                             AND state.current_version_id = activity.result_version_id
+                         )
+                         OR (
+                             activity.outcome = 'committed_supersede'
+                             AND state.current_version_id = activity.result_version_id
+                         )
+                         OR (
+                             activity.outcome = 'committed_support'
+                             AND state.current_version_id = activity.result_version_id
+                             AND EXISTS (
+                                 SELECT 1 FROM memory_evidence AS evidence
+                                 WHERE evidence.memory_id = activity.memory_id
+                                   AND evidence.memory_version_id = activity.result_version_id
+                                   AND evidence.extractor_kind = activity.extractor_kind
+                                   AND COALESCE(evidence.extractor_provider, '') =
+                                       COALESCE(activity.provider_identifier, '')
+                                   AND COALESCE(evidence.extractor_model, '') =
+                                       COALESCE(activity.model_identifier, '')
+                                   AND NOT EXISTS (
+                                       SELECT 1
+                                       FROM memory_evidence_retractions AS retraction
+                                       WHERE retraction.evidence_id = evidence.evidence_id
+                                   )
+                             )
+                         )
+                     )
+               ) AS can_undo_latest_auto
+        FROM memories AS memory
+        LEFT JOIN memory_record_states AS state
+          ON state.memory_id = memory.id
+        LEFT JOIN memory_versions AS current_version
+          ON current_version.memory_id = state.memory_id
+         AND current_version.id = state.current_version_id
+         AND current_version.version_number = state.head_version
+    """
+
+    def __init__(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        source_references: MemorySourceReferenceService | None = None,
+    ) -> None:
         self._connection = connection
+        self._source_references = source_references
+
+    def _versioned_mutations(self):
+        from app.repositories.versioned_memories import VersionedMemoryRepository
+        from app.services.versioned_memory_mutation import VersionedMemoryMutationService
+
+        return VersionedMemoryMutationService(
+            self._connection,
+            memories=self,
+            versioned=VersionedMemoryRepository(self._connection),
+            source_references=self._source_references,
+        )
 
     def create(
         self,
@@ -254,56 +446,26 @@ class MemoryRepository:
         importance: int,
         confidence: float,
         metadata: dict[str, Any] | None = None,
+        canonical_subject_code: str | None = None,
     ) -> tuple[Memory, list[Memory]]:
-        clean_content = content.strip()
-        conflicts = self.find_conflicts(clean_content, memory_type)
-        now = _now()
-        memory = Memory(
-            id=str(uuid.uuid4()),
-            content=clean_content,
+        if source is not MemorySource.MANUAL:
+            raise ValueError("formal memory creation requires manual source")
+        return self._versioned_mutations().create_manual(
+            content=content,
             memory_type=memory_type,
-            source=source,
             source_session_id=source_session_id,
             importance=importance,
             confidence=confidence,
-            status=MemoryStatus.ACTIVE,
-            created_at=now,
-            updated_at=now,
-            metadata=metadata or {},
+            metadata=metadata,
+            canonical_subject_code=canonical_subject_code,
         )
-        self._connection.execute(
-            """
-            INSERT INTO memories (
-                id, content, memory_type, source, source_session_id,
-                importance, confidence, status, metadata_json, created_at, updated_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                memory.id,
-                memory.content,
-                memory.memory_type.value,
-                memory.source.value,
-                memory.source_session_id,
-                memory.importance,
-                memory.confidence,
-                memory.status.value,
-                metadata_to_json(memory.metadata),
-                _to_iso(memory.created_at),
-                _to_iso(memory.updated_at),
-            ),
-        )
-        self._connection.commit()
-        return memory, conflicts
 
     def list(self, status: MemoryStatus = MemoryStatus.ACTIVE) -> list[Memory]:
         rows = self._connection.execute(
-            """
-            SELECT id, content, memory_type, source, source_session_id, importance,
-                   confidence, status, metadata_json, created_at, updated_at
-            FROM memories
-            WHERE status = ?
-            ORDER BY importance DESC, updated_at DESC
+            f"""
+            {self._SUMMARY_SELECT}
+            WHERE memory.status = ?
+            ORDER BY memory.importance DESC, memory.updated_at DESC
             """,
             (status.value,),
         ).fetchall()
@@ -311,11 +473,9 @@ class MemoryRepository:
 
     def get(self, memory_id: str) -> Memory | None:
         row = self._connection.execute(
-            """
-            SELECT id, content, memory_type, source, source_session_id, importance,
-                   confidence, status, metadata_json, created_at, updated_at
-            FROM memories
-            WHERE id = ?
+            f"""
+            {self._SUMMARY_SELECT}
+            WHERE memory.id = ?
             """,
             (memory_id,),
         ).fetchone()
@@ -336,34 +496,19 @@ class MemoryRepository:
         importance: int | None = None,
         confidence: float | None = None,
         metadata: dict[str, Any] | None = None,
+        canonical_subject_code: str | None = None,
+        canonical_subject_code_provided: bool = False,
     ) -> tuple[Memory, list[Memory]]:
-        current = self.require(memory_id)
-        next_content = current.content if content is None else content.strip()
-        next_type = current.memory_type if memory_type is None else memory_type
-        next_importance = current.importance if importance is None else importance
-        next_confidence = current.confidence if confidence is None else confidence
-        next_metadata = current.metadata if metadata is None else metadata
-        conflicts = self.find_conflicts(next_content, next_type, exclude_id=memory_id)
-        updated_at = _now()
-        self._connection.execute(
-            """
-            UPDATE memories
-            SET content = ?, memory_type = ?, importance = ?, confidence = ?,
-                metadata_json = ?, updated_at = ?
-            WHERE id = ?
-            """,
-            (
-                next_content,
-                next_type.value,
-                next_importance,
-                next_confidence,
-                metadata_to_json(next_metadata),
-                _to_iso(updated_at),
-                memory_id,
-            ),
+        return self._versioned_mutations().update(
+            memory_id,
+            content=content,
+            memory_type=memory_type,
+            importance=importance,
+            confidence=confidence,
+            metadata=metadata,
+            canonical_subject_code=canonical_subject_code,
+            canonical_subject_code_provided=canonical_subject_code_provided,
         )
-        self._connection.commit()
-        return self.require(memory_id), conflicts
 
     def create_candidate(
         self,
@@ -401,9 +546,10 @@ class MemoryRepository:
             """
             INSERT INTO memories (
                 id, content, memory_type, source, source_session_id,
-                importance, confidence, status, metadata_json, created_at, updated_at
+                source_session_reference_hash, importance, confidence, status,
+                metadata_json, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 memory.id,
@@ -411,6 +557,12 @@ class MemoryRepository:
                 memory.memory_type.value,
                 memory.source.value,
                 memory.source_session_id,
+                (
+                    self._source_references.session_hash(memory.source_session_id)
+                    if memory.source_session_id is not None
+                    and self._source_references is not None
+                    else None
+                ),
                 memory.importance,
                 memory.confidence,
                 memory.status.value,
@@ -422,38 +574,21 @@ class MemoryRepository:
         self._connection.commit()
         return memory, conflicts
 
-    def confirm_candidate(self, memory_id: str) -> tuple[Memory, list[Memory]]:
-        current = self.require(memory_id)
-        if current.status != MemoryStatus.PENDING:
-            raise ValueError("Only pending memory candidates can be confirmed")
-        conflicts = self.find_conflicts(
-            current.content,
-            current.memory_type,
-            exclude_id=memory_id,
-            statuses=(MemoryStatus.ACTIVE,),
+    def confirm_candidate(
+        self,
+        memory_id: str,
+        *,
+        canonical_subject_code: str | None = None,
+    ) -> tuple[Memory, list[Memory]]:
+        return self._versioned_mutations().confirm_candidate(
+            memory_id,
+            canonical_subject_code=canonical_subject_code,
         )
-        if conflicts:
-            return current, conflicts
-        updated_at = _now()
-        next_metadata = _metadata_with_timestamp(current.metadata, "confirmed_at", updated_at)
-        self._connection.execute(
-            """
-            UPDATE memories
-            SET status = ?, metadata_json = ?, updated_at = ?
-            WHERE id = ?
-            """,
-            (
-                MemoryStatus.ACTIVE.value,
-                metadata_to_json(next_metadata),
-                _to_iso(updated_at),
-                memory_id,
-            ),
-        )
-        self._connection.commit()
-        return self.require(memory_id), []
 
     def dismiss_candidate(self, memory_id: str) -> Memory:
         current = self.require(memory_id)
+        if current.metadata.get("forgotten") is True:
+            raise MemoryCandidateForgottenError()
         if current.status != MemoryStatus.PENDING:
             raise ValueError("Only pending memory candidates can be dismissed")
         updated_at = _now()
@@ -475,24 +610,139 @@ class MemoryRepository:
         return self.require(memory_id)
 
     def archive(self, memory_id: str) -> bool:
-        cursor = self._connection.execute(
-            "UPDATE memories SET status = ?, updated_at = ? WHERE id = ?",
-            (MemoryStatus.ARCHIVED.value, _to_iso(_now()), memory_id),
+        return self._versioned_mutations().archive(memory_id)
+
+    def context_sources_for_memories(
+        self,
+        memories: list[Memory],
+    ) -> list[StructuredMemoryContextSource]:
+        selected_ids = [memory.id for memory in memories]
+        if not selected_ids:
+            return []
+        sources = self.list_context_sources(None, 1_000_000)
+        by_id = {source.memory_id: source for source in sources}
+        selected: list[StructuredMemoryContextSource] = []
+        for rank, memory in enumerate(memories):
+            source = by_id.get(memory.id)
+            if source is None:
+                continue
+            selected.append(
+                replace(source, relevance_score=float(len(memories) - rank))
+            )
+        return selected
+
+    def list_context_sources(
+        self,
+        query: str | None,
+        limit: int,
+        fallback_limit: int = 3,
+    ) -> list[StructuredMemoryContextSource]:
+        clean_query = (query or "").strip()
+        query_tokens = _tokens(clean_query) if clean_query else set()
+        hinted_types = _hinted_types(clean_query) if clean_query else set()
+        rows = self._connection.execute(
+            f"""
+            SELECT memory.id AS memory_id,
+                   COALESCE(version.content, memory.content) AS content,
+                   COALESCE(version.memory_type, memory.memory_type) AS memory_type,
+                   COALESCE(version.importance, memory.importance) AS importance,
+                   COALESCE(version.confidence, memory.confidence) AS confidence,
+                   COALESCE(state.updated_at, memory.updated_at) AS updated_at,
+                   state.current_version_id AS current_version_id,
+                   COALESCE(version.source_kind, 'legacy') AS source_kind,
+                   CASE WHEN state.memory_id IS NULL THEN 1 ELSE 0 END AS legacy_compat
+            FROM memories AS memory
+            LEFT JOIN memory_record_states AS state
+              ON state.memory_id = memory.id
+            LEFT JOIN memory_versions AS version
+              ON version.memory_id = state.memory_id
+             AND version.id = state.current_version_id
+             AND version.version_number = state.head_version
+            WHERE {MEMORY_ELIGIBLE_PREDICATE}
+            """
+        ).fetchall()
+        sources: list[StructuredMemoryContextSource] = []
+        for row in rows:
+            memory = Memory(
+                id=str(row["memory_id"]),
+                content=str(row["content"]),
+                memory_type=MemoryType(str(row["memory_type"])),
+                source=MemorySource.MANUAL,
+                source_session_id=None,
+                importance=int(row["importance"]),
+                confidence=float(row["confidence"]),
+                status=MemoryStatus.ACTIVE,
+                created_at=_from_iso(str(row["updated_at"])),
+                updated_at=_from_iso(str(row["updated_at"])),
+                metadata={},
+            )
+            score = (
+                _relevance_score(query_tokens, hinted_types, memory)
+                if clean_query
+                else 0.0
+            )
+            sources.append(
+                StructuredMemoryContextSource(
+                    memory_id=memory.id,
+                    current_version_id=(
+                        str(row["current_version_id"])
+                        if row["current_version_id"] is not None
+                        else None
+                    ),
+                    source_kind=MemoryVersionSourceKind(str(row["source_kind"])),
+                    content=memory.content,
+                    memory_type=memory.memory_type,
+                    importance=memory.importance,
+                    confidence=memory.confidence,
+                    updated_at=memory.updated_at,
+                    relevance_score=score,
+                    legacy_compat=bool(row["legacy_compat"]),
+                )
+            )
+        if clean_query:
+            relevant = [item for item in sources if item.relevance_score > 0.0]
+            if relevant:
+                sources = relevant
+            else:
+                limit = min(limit, fallback_limit)
+        sources.sort(
+            key=lambda item: (
+                -item.relevance_score,
+                0
+                if item.source_kind.value
+                in {"manual", "candidate", "user_edit", "user_revert"}
+                else 1,
+                -item.importance,
+                -item.confidence,
+                -item.updated_at.timestamp(),
+                item.memory_id,
+                item.current_version_id or "",
+            )
         )
-        self._connection.commit()
-        return cursor.rowcount > 0
+        return sources[:limit]
 
     def list_for_context(self, limit: int) -> list[Memory]:
+        return self._list_context_eligible(limit)
+
+    def _list_context_eligible(self, limit: int) -> list[Memory]:
         rows = self._connection.execute(
-            """
-            SELECT id, content, memory_type, source, source_session_id, importance,
-                   confidence, status, metadata_json, created_at, updated_at
-            FROM memories
-            WHERE status = ?
-            ORDER BY importance DESC, updated_at DESC
+            f"""
+            SELECT memory.id, memory.content, memory.memory_type, memory.source,
+                   memory.source_session_id, memory.importance, memory.confidence,
+                   memory.status, memory.metadata_json, memory.created_at,
+                   memory.updated_at
+            FROM memories AS memory
+            LEFT JOIN memory_record_states AS state
+              ON state.memory_id = memory.id
+            LEFT JOIN memory_versions AS version
+              ON version.memory_id = state.memory_id
+             AND version.id = state.current_version_id
+             AND version.version_number = state.head_version
+            WHERE {MEMORY_ELIGIBLE_PREDICATE}
+            ORDER BY memory.importance DESC, memory.updated_at DESC, memory.id DESC
             LIMIT ?
             """,
-            (MemoryStatus.ACTIVE.value, limit),
+            (limit,),
         ).fetchall()
         return [_row_to_memory(row) for row in rows]
 
@@ -506,7 +756,7 @@ class MemoryRepository:
         if not query_tokens and not hinted_types:
             return self.list_for_context(min(limit, fallback_limit))
 
-        active_memories = self.list(status=MemoryStatus.ACTIVE)
+        active_memories = self._list_context_eligible(limit=10000)
         scored = [
             (_relevance_score(query_tokens, hinted_types, memory), memory)
             for memory in active_memories

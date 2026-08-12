@@ -1,10 +1,39 @@
 import pytest
 
+from app.api.dependencies import build_session_summary_provider
 from app.core.config import Settings
 from app.providers.anthropic_provider import AnthropicProvider
 from app.providers.deepseek_provider import DeepSeekProvider
-from app.providers.factory import create_emotion_analysis_provider, create_named_provider, create_provider
+from app.providers.factory import (
+    create_emotion_analysis_provider,
+    create_memory_extractor_provider,
+    create_named_provider,
+    create_provider,
+    memory_extractor_provider_is_configured,
+)
 from app.providers.fake_provider import FakeProvider
+
+
+def test_direct_remote_summary_factory_misuse_fails_before_llm_construction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+
+    def forbidden(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        raise AssertionError("remote provider constructed")
+
+    monkeypatch.setattr("app.providers.factory.create_named_provider", forbidden)
+    with pytest.raises(ValueError, match="fenced Task 7 worker"):
+        build_session_summary_provider(
+            Settings(
+                session_summary_provider="llm",
+                session_summary_llm_provider="deepseek",
+                deepseek_api_key="test-only",
+            )
+        )
+    assert calls == 0
 
 
 def test_factory_creates_emotion_analysis_provider_with_independent_settings() -> None:
@@ -96,3 +125,77 @@ def test_named_factory_requires_real_provider_credentials(
 def test_named_factory_rejects_fake_provider() -> None:
     with pytest.raises(ValueError, match="Unsupported named LLM provider: fake"):
         create_named_provider(Settings(), "fake")
+
+
+def test_memory_extractor_factory_creates_selected_anthropic_provider() -> None:
+    provider = create_memory_extractor_provider(
+        Settings(
+            memory_extractor_provider="anthropic",
+            anthropic_api_key="anthropic-test-secret",
+        )
+    )
+
+    assert isinstance(provider, AnthropicProvider)
+
+
+def test_memory_extractor_factory_creates_selected_deepseek_provider_with_memory_settings() -> None:
+    provider = create_memory_extractor_provider(
+        Settings(
+            memory_extractor_provider="deepseek",
+            deepseek_api_key="deepseek-test-secret",
+            memory_extractor_max_tokens=768,
+            memory_extractor_timeout_seconds=21.0,
+            memory_extractor_max_retries=1,
+        )
+    )
+
+    assert isinstance(provider, DeepSeekProvider)
+    assert provider._max_tokens == 768
+    assert provider._timeout_seconds == 21.0
+    assert provider._max_retries == 1
+
+
+@pytest.mark.parametrize(
+    ("provider_name", "settings_kwargs"),
+    [
+        ("anthropic", {"anthropic_api_key": "anthropic-test-secret"}),
+        ("deepseek", {"deepseek_api_key": "deepseek-test-secret"}),
+    ],
+)
+def test_memory_extractor_provider_is_configured_checks_selected_provider_credential(
+    provider_name: str,
+    settings_kwargs: dict[str, str],
+) -> None:
+    assert memory_extractor_provider_is_configured(
+        Settings(memory_extractor_provider=provider_name, **settings_kwargs)
+    )
+
+
+@pytest.mark.parametrize(
+    ("provider_name", "settings_kwargs"),
+    [
+        ("anthropic", {"deepseek_api_key": "deepseek-test-secret"}),
+        ("deepseek", {"anthropic_api_key": "anthropic-test-secret"}),
+    ],
+)
+def test_memory_extractor_provider_is_configured_rejects_other_provider_credential(
+    provider_name: str,
+    settings_kwargs: dict[str, str],
+) -> None:
+    assert not memory_extractor_provider_is_configured(
+        Settings(memory_extractor_provider=provider_name, **settings_kwargs)
+    )
+
+
+def test_memory_extractor_factory_fails_closed_for_unknown_provider() -> None:
+    settings = Settings(memory_extractor_provider="unknown")
+
+    with pytest.raises(ValueError, match="Unsupported named LLM provider: unknown"):
+        create_memory_extractor_provider(settings)
+
+
+def test_memory_extractor_configuration_check_fails_closed_for_unknown_provider() -> None:
+    with pytest.raises(ValueError, match="Unsupported memory extractor provider: unknown"):
+        memory_extractor_provider_is_configured(
+            Settings(memory_extractor_provider="unknown")
+        )

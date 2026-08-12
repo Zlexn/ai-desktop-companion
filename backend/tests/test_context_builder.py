@@ -1,8 +1,16 @@
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
 
 from app.domain.models import ChatRole, EmotionState, EmotionVector, MemorySource, MemoryType
+from app.domain.session_summary import (
+    SummaryInjectionAuthoritySnapshot,
+    SummarySourceFragment,
+)
 from app.providers.base import LLMMessage
+from app.repositories.context_sources import ContextSourceRepository
 from app.repositories.memories import MemoryRepository
 from app.repositories.memory_embeddings import MemoryEmbeddingRepository
 from app.repositories.messages import MessageRepository
@@ -19,6 +27,275 @@ class RecordingEmotionFormatter:
     def format(self, state: EmotionState) -> str:
         self.seen_state = state
         return "emotion context"
+
+
+def test_context_snapshot_excludes_current_before_limit(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'snapshot-exclusion.db'}"
+    with managed_connection(database_url) as connection:
+        sessions = SessionRepository(connection)
+        messages = MessageRepository(connection)
+        session = sessions.create("snapshot")
+        first = messages.add(session.id, ChatRole.USER, "first")
+        second = messages.add(session.id, ChatRole.ASSISTANT, "second")
+        current = messages.add(session.id, ChatRole.USER, "current")
+
+        snapshot = ContextSourceRepository(messages, None).snapshot(
+            session_id=session.id,
+            current_user_message_id=current.id,
+            query="current",
+            recent_limit=2,
+            memory_limit=0,
+        )
+
+        assert [item.id for item in snapshot.recent_messages] == [first.id, second.id]
+        assert current.id not in [item.id for item in snapshot.recent_messages]
+
+
+def test_context_sources_include_exact_current_version_provenance(
+    tmp_path: Path,
+) -> None:
+    database_url = f"sqlite:///{tmp_path / 'snapshot-version.db'}"
+    with managed_connection(database_url) as connection:
+        sessions = SessionRepository(connection)
+        messages = MessageRepository(connection)
+        memories = MemoryRepository(connection)
+        session = sessions.create("snapshot")
+        current = messages.add(session.id, ChatRole.USER, "红茶")
+        memory, _ = memories.create(
+            content="用户喜欢红茶。",
+            memory_type=MemoryType.PREFERENCE,
+            source=MemorySource.MANUAL,
+            source_session_id=None,
+            importance=3,
+            confidence=0.9,
+            metadata={},
+        )
+        state = connection.execute(
+            "SELECT current_version_id FROM memory_record_states WHERE memory_id=?",
+            (memory.id,),
+        ).fetchone()
+
+        snapshot = ContextSourceRepository(messages, memories).snapshot(
+            session_id=session.id,
+            current_user_message_id=current.id,
+            query="红茶",
+            recent_limit=12,
+            memory_limit=8,
+        )
+
+        assert len(snapshot.memories) == 1
+        source = snapshot.memories[0]
+        assert source.memory_id == memory.id
+        assert source.current_version_id == state["current_version_id"]
+        assert source.legacy_compat is False
+        assert source.source_kind.value == "manual"
+
+
+def test_context_sources_legacy_rows_have_no_fabricated_version_id(
+    tmp_path: Path,
+) -> None:
+    database_url = f"sqlite:///{tmp_path / 'snapshot-legacy.db'}"
+    with managed_connection(database_url) as connection:
+        connection.execute(
+            """
+            INSERT INTO memories (
+                id, content, memory_type, source, source_session_id,
+                importance, confidence, status, metadata_json, created_at, updated_at
+            ) VALUES ('legacy', 'legacy memory', 'other', 'manual', NULL,
+                      3, 1.0, 'active', '{}', ?, ?)
+            """,
+            (datetime.now(UTC).isoformat(), datetime.now(UTC).isoformat()),
+        )
+        connection.commit()
+
+        sources = MemoryRepository(connection).list_context_sources(None, 8)
+
+        assert sources[0].memory_id == "legacy"
+        assert sources[0].current_version_id is None
+        assert sources[0].legacy_compat is True
+
+
+def test_context_sources_exclude_deleted_and_open_conflict_records(
+    tmp_path: Path,
+) -> None:
+    database_url = f"sqlite:///{tmp_path / 'snapshot-ineligible.db'}"
+    with managed_connection(database_url) as connection:
+        memories = MemoryRepository(connection)
+        left, _ = memories.create(
+            content="用户喜欢红茶。",
+            memory_type=MemoryType.PREFERENCE,
+            source=MemorySource.MANUAL,
+            source_session_id=None,
+            importance=3,
+            confidence=0.9,
+            metadata={},
+        )
+        right, _ = memories.create(
+            content="用户不喜欢红茶。",
+            memory_type=MemoryType.PREFERENCE,
+            source=MemorySource.MANUAL,
+            source_session_id=None,
+            importance=3,
+            confidence=0.9,
+            metadata={},
+        )
+        conflict_left, conflict_right = sorted((left.id, right.id))
+        connection.execute(
+            """
+            INSERT INTO memory_conflicts (
+                conflict_id, left_memory_id, right_memory_id, status,
+                resolution_kind, resolved_memory_id, created_at, resolved_at
+            ) VALUES ('conflict', ?, ?, 'open', NULL, NULL, ?, NULL)
+            """,
+            (conflict_left, conflict_right, datetime.now(UTC).isoformat()),
+        )
+        connection.commit()
+
+        assert memories.list_context_sources("红茶", 8) == []
+
+
+def test_recent_message_failure_is_not_hidden_by_optional_summary_handling() -> None:
+    class FailingMessages:
+        def list_recent_excluding(self, *_args, **_kwargs):
+            raise RuntimeError("recent messages unavailable")
+
+    repository = ContextSourceRepository(
+        FailingMessages(),  # type: ignore[arg-type]
+        None,
+    )
+
+    with pytest.raises(RuntimeError, match="recent messages unavailable"):
+        repository.snapshot(
+            session_id="session",
+            current_user_message_id="current",
+            query="query",
+            recent_limit=12,
+            memory_limit=0,
+        )
+
+
+def test_summary_lookup_failure_is_isolated_after_recent_snapshot(
+    tmp_path: Path,
+) -> None:
+    database_url = f"sqlite:///{tmp_path / 'summary-lookup-failure.db'}"
+    with managed_connection(database_url) as connection:
+        session = SessionRepository(connection).create("summary")
+        messages = MessageRepository(connection)
+        previous = messages.add(session.id, ChatRole.USER, "previous")
+        current = messages.add(session.id, ChatRole.USER, "current")
+
+        class FailingSelection:
+            def select(self, **kwargs):
+                raise RuntimeError("summary lookup failed")
+
+        snapshot = ContextSourceRepository(
+            messages,
+            None,
+            summary_selection=FailingSelection(),  # type: ignore[arg-type]
+            summary_authority=SummaryInjectionAuthoritySnapshot(
+                generation=1,
+                policy_fingerprint="policy",
+                disclosure_version="summary-injection-disclosure-v1",
+                disclosed_fields=("summary_text",),
+                max_fragment_count=1,
+                max_fragment_characters=100,
+                max_total_characters=100,
+            ),
+        ).snapshot(
+            session_id=session.id,
+            current_user_message_id=current.id,
+            query="current",
+            recent_limit=12,
+            memory_limit=0,
+        )
+
+        assert [item.id for item in snapshot.recent_messages] == [previous.id]
+        assert snapshot.summaries == ()
+        assert snapshot.summary_authority is None
+
+
+def test_context_snapshot_exposes_selected_summary_and_authority(
+    tmp_path: Path,
+) -> None:
+    database_url = f"sqlite:///{tmp_path / 'summary-source-snapshot.db'}"
+    authority = SummaryInjectionAuthoritySnapshot(
+        generation=2,
+        policy_fingerprint="policy",
+        disclosure_version="summary-injection-disclosure-v1",
+        disclosed_fields=("summary_text",),
+        max_fragment_count=1,
+        max_fragment_characters=100,
+        max_total_characters=100,
+    )
+    fragment = SummarySourceFragment(
+        summary_id="summary",
+        source_session_id="source-session",
+        source_kind="generated",
+        created_at=datetime.now(UTC),
+        summary_text="低信任摘要",
+        observed_barrier_generation=0,
+        source_set_hash="source-set-hash",
+        suppression_generation=0,
+        suppression_state=None,
+        summarizer_schema_version="session-summary-v2",
+        injection_schema_version="summary-injection-v1",
+        source_turn_ids=("turn",),
+        source_message_ids=("user", "assistant"),
+    )
+
+    class RecordingSelection:
+        def __init__(self) -> None:
+            self.recent_ids: tuple[str, ...] = ()
+
+        def select(self, **kwargs):
+            self.recent_ids = kwargs["selected_recent_message_ids"]
+            return SimpleNamespace(
+                fragments=(fragment,),
+                authority=authority,
+            )
+
+    with managed_connection(database_url) as connection:
+        session = SessionRepository(connection).create("summary")
+        messages = MessageRepository(connection)
+        previous = messages.add(session.id, ChatRole.USER, "previous")
+        current = messages.add(session.id, ChatRole.USER, "current")
+        selection = RecordingSelection()
+
+        snapshot = ContextSourceRepository(
+            messages,
+            None,
+            summary_selection=selection,  # type: ignore[arg-type]
+            summary_authority=authority,
+        ).snapshot(
+            session_id=session.id,
+            current_user_message_id=current.id,
+            query="current",
+            recent_limit=12,
+            memory_limit=0,
+        )
+
+        assert selection.recent_ids == (previous.id,)
+        assert snapshot.summaries == (fragment,)
+        assert snapshot.summary_authority == authority
+
+
+def test_context_builder_exposes_typed_snapshot_compatibility(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'builder-snapshot.db'}"
+    with managed_connection(database_url) as connection:
+        sessions = SessionRepository(connection)
+        messages = MessageRepository(connection)
+        session = sessions.create("snapshot")
+        previous = messages.add(session.id, ChatRole.USER, "same")
+        current = messages.add(session.id, ChatRole.USER, "same")
+        builder = ContextBuilder(messages, 12)
+
+        snapshot = builder.snapshot_sources(
+            session_id=session.id,
+            current_user_message_id=current.id,
+            query="same",
+        )
+
+        assert [item.id for item in snapshot.recent_messages] == [previous.id]
 
 
 def test_emotion_context_formats_only_caller_supplied_snapshot(tmp_path: Path) -> None:

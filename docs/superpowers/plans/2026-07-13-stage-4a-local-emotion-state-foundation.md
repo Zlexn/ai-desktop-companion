@@ -1,4 +1,4 @@
-# Stage 4A Local Emotion State Foundation Implementation Plan
+﻿# Stage 4A Local Emotion State Foundation Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -1170,9 +1170,9 @@ On BLOCKED, keep `4A IMPLEMENTING` and make the observed blocker the next task.
 - [ ] **Step 4: Review only task-owned paths and run consistency checks**
 
 ```powershell
-git -C "C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠" diff --check
-git -C "C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠" status --short
-git -C "C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠" grep -n -E "Stage 4A|阶段 4|NEXT" -- README.md CLAUDE.md docs/stage4a-local-emotion-state-foundation.md
+git -C "<project-root>" diff --check
+git -C "<project-root>" status --short
+git -C "<project-root>" grep -n -E "Stage 4A|阶段 4|NEXT" -- README.md CLAUDE.md docs/stage4a-local-emotion-state-foundation.md
 ```
 
 Do not reset, stage, commit, or delete unrelated dirty-tree files. The user authorized automatic execution, not Git commits.

@@ -8,6 +8,7 @@ from app.repositories.messages import MessageRepository
 from app.repositories.session_summaries import SessionSummaryRepository
 from app.repositories.sessions import SessionRepository
 from app.repositories.sqlite import managed_connection
+from app.services.memory_source_reference import MemorySourceReferenceService
 
 
 def test_session_summary_domain_model_supports_manual_source() -> None:
@@ -40,6 +41,15 @@ def test_session_summaries_table_is_created(tmp_path: Path) -> None:
         "metadata_json",
         "created_at",
         "updated_at",
+        "observed_memory_summary_barrier",
+        "payload_state",
+        "source_set_hash",
+        "summarizer_schema_version",
+        "injection_schema_version",
+        "replaces_summary_id",
+        "provenance_state",
+        "redacted_at",
+        "redaction_reason_code",
     }
 
 
@@ -92,7 +102,7 @@ def test_latest_for_session_returns_newest_summary(tmp_path: Path) -> None:
     assert missing is None
 
 
-def test_delete_session_summary_returns_whether_row_was_deleted(tmp_path: Path) -> None:
+def test_delete_redacts_summary_payload_instead_of_removing_row(tmp_path: Path) -> None:
     database_url = f"sqlite:///{tmp_path / 'summaries.db'}"
 
     with managed_connection(database_url) as connection:
@@ -103,7 +113,65 @@ def test_delete_session_summary_returns_whether_row_was_deleted(tmp_path: Path) 
 
         assert summaries.delete(summary.id) is True
         assert summaries.delete(summary.id) is False
-        assert summaries.list_for_session(session.id) == []
+        retained = summaries.list_for_session(session.id)
+        assert len(retained) == 1
+        assert retained[0].summary_text is None
+        raw = connection.execute(
+            "SELECT payload_state, redaction_reason_code FROM session_summaries "
+            "WHERE id=?",
+            (summary.id,),
+        ).fetchone()
+        assert tuple(raw) == ("redacted", "legacy_manual_redaction")
+
+
+@pytest.mark.asyncio
+async def test_legacy_delete_cannot_redact_exact_generated_summary(
+    tmp_path: Path,
+) -> None:
+    from test_summary_rebuild import _generated_summary
+
+    database_url = f"sqlite:///{tmp_path / 'exact-delete.db'}"
+    _, _, summary = await _generated_summary(database_url)
+
+    with managed_connection(database_url) as connection:
+        summaries = SessionSummaryRepository(connection)
+        with pytest.raises(ValueError, match="invalidation service"):
+            summaries.delete(summary["id"])
+        row = connection.execute(
+            "SELECT summary_text, payload_state FROM session_summaries WHERE id=?",
+            (summary["id"],),
+        ).fetchone()
+        assert row["summary_text"] is not None
+        assert row["payload_state"] == "active"
+        assert connection.execute(
+            "SELECT 1 FROM summary_source_suppressions WHERE session_id=? "
+            "AND source_set_hash=?",
+            (summary["session_id"], summary["source_set_hash"]),
+        ).fetchone() is None
+
+
+
+def test_redacted_summary_reader_preserves_unavailable_payload(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'redacted-summary.db'}"
+
+    with managed_connection(database_url) as connection:
+        sessions = SessionRepository(connection)
+        summaries = SessionSummaryRepository(connection)
+        session = sessions.create("redacted summary")
+        summary = summaries.create(session_id=session.id, summary_text="private payload")
+        connection.execute(
+            "UPDATE session_summaries "
+            "SET summary_text=NULL, payload_state='redacted', "
+            "provenance_state='legacy_unverified', redacted_at='now', "
+            "redaction_reason_code='user_privacy_redaction' WHERE id=?",
+            (summary.id,),
+        )
+        connection.commit()
+
+        listed = summaries.list_for_session(session.id)
+
+    assert len(listed) == 1
+    assert listed[0].summary_text is None
 
 
 def test_session_summary_rejects_empty_text_and_negative_message_count(tmp_path: Path) -> None:
@@ -140,7 +208,10 @@ def test_session_summaries_do_not_create_long_term_memories(tmp_path: Path) -> N
     with managed_connection(database_url) as connection:
         sessions = SessionRepository(connection)
         summaries = SessionSummaryRepository(connection)
-        memories = MemoryRepository(connection)
+        memories = MemoryRepository(
+            connection,
+            source_references=MemorySourceReferenceService(b"s" * 32),
+        )
         session = sessions.create("separation")
 
         summaries.create(session_id=session.id, summary_text="这是会话摘要，不是长期记忆。")

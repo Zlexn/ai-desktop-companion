@@ -31,6 +31,18 @@ def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClie
         "EMOTION_ANALYSIS_MEMORY_LIMIT",
         "EMOTION_ANALYSIS_MAX_ITEM_CHARACTERS",
         "EMOTION_ANALYSIS_MAX_TOTAL_CHARACTERS",
+        "MEMORY_AUTOMATION_MODE",
+        "MEMORY_EXTRACTOR_ROUTE",
+        "MEMORY_EXTRACTOR_PROVIDER",
+        "MEMORY_EXTRACTOR_MODEL",
+        "MEMORY_EXTRACTOR_MAX_TOKENS",
+        "MEMORY_EXTRACTOR_TIMEOUT_SECONDS",
+        "MEMORY_EXTRACTOR_MAX_RETRIES",
+        "MEMORY_EXTRACTOR_MAX_PROPOSALS",
+        "MEMORY_EXTRACTOR_MAX_PROPOSAL_CHARACTERS",
+        "MEMORY_EXTRACTOR_MAX_TOTAL_CHARACTERS",
+        "ANTHROPIC_API_KEY",
+        "DEEPSEEK_API_KEY",
     ):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'api.db'}")

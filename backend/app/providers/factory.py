@@ -39,6 +39,36 @@ def create_emotion_analysis_provider(settings: Settings) -> LLMProvider | None:
     )
 
 
+def create_session_summary_llm_provider(settings: Settings) -> LLMProvider:
+    return create_named_provider(
+        settings,
+        settings.session_summary_llm_provider,
+        deepseek_max_tokens=settings.session_summary_llm_max_tokens,
+        deepseek_timeout_seconds=settings.session_summary_llm_timeout_seconds,
+        deepseek_max_retries=settings.session_summary_llm_max_retries,
+    )
+
+
+def create_memory_extractor_provider(settings: Settings) -> LLMProvider:
+    return create_named_provider(
+        settings,
+        settings.memory_extractor_provider,
+        deepseek_max_tokens=settings.memory_extractor_max_tokens,
+        deepseek_timeout_seconds=settings.memory_extractor_timeout_seconds,
+        deepseek_max_retries=settings.memory_extractor_max_retries,
+    )
+
+
+def memory_extractor_provider_is_configured(settings: Settings) -> bool:
+    if settings.memory_extractor_provider == "anthropic":
+        return bool(settings.anthropic_api_key)
+    if settings.memory_extractor_provider == "deepseek":
+        return bool(settings.deepseek_api_key)
+    raise ValueError(
+        f"Unsupported memory extractor provider: {settings.memory_extractor_provider}"
+    )
+
+
 def create_provider(settings: Settings) -> LLMProvider:
     if settings.llm_provider == "fake":
         return FakeProvider(mode=settings.fake_provider_mode)

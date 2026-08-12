@@ -6,6 +6,8 @@ from app.domain.models import (
     EmotionState,
 )
 
+from app.services.context_data_encoder import EmotionExpressionView
+
 MAX_EMOTION_CONTEXT_CHARACTERS = 500
 
 
@@ -26,6 +28,23 @@ def _bucket(value: float, labels: tuple[str, str, str]) -> str:
 
 
 class EmotionContextFormatter:
+    def to_expression_view(
+        self,
+        state: EmotionState,
+    ) -> EmotionExpressionView | None:
+        if not state.enabled:
+            return None
+        vector = state.vector
+        return EmotionExpressionView(
+            version=state.version,
+            mood=_bucket(vector.mood, ("serious", "steady", "bright")),
+            trust=vector.trust,
+            concern=vector.concern,
+            distance=vector.distance,
+            irritation=vector.irritation,
+            formality=vector.formality,
+        )
+
     def format(self, state: EmotionState) -> str | None:
         if not state.enabled:
             return None

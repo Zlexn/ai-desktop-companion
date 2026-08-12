@@ -1,4 +1,4 @@
-# Stage 4E Message-Bound Expression Preview Implementation Plan
+﻿# Stage 4E Message-Bound Expression Preview Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -17,8 +17,8 @@ The repository root is `AI桌宠/`; its parent directory is not a Git repository
 Before every task:
 
 ```powershell
-git -C "C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠" status --short
-git -C "C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠" diff --check
+git -C "<project-root>" status --short
+git -C "<project-root>" diff --check
 ```
 
 Rules:
@@ -27,7 +27,7 @@ Rules:
 - Treat all existing changes as user-owned WIP. Read each shared file immediately before editing it.
 - Commit checkpoints in this plan are intentionally replaced by diff-review checkpoints: the user has not requested commits, and shared files contain pre-existing work.
 - If commits are authorized later, stage exact files or exact hunks only, inspect `git diff --cached`, and never include `.env`, SQLite/WAL/SHM files, `test-results/`, Playwright traces, audio, `.superpowers/`, credentials, or unrelated Stage 3M–4D hunks.
-- Run tests from `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠`. Commands use `.\.venv\Scripts\python.exe`; if it is absent, use the active Python interpreter with identical arguments.
+- Run tests from `<project-root>`. Commands use `.\.venv\Scripts\python.exe`; if it is absent, use the active Python interpreter with identical arguments.
 
 ## File Map
 

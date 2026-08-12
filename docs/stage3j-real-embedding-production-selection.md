@@ -1,4 +1,4 @@
-# Stage 3J Real Embedding Production Selection
+﻿# Stage 3J Real Embedding Production Selection
 
 Date: 2026-07-10
 Status: VERIFIED PASS
@@ -33,7 +33,7 @@ This remains evaluation evidence only. It does not change default retrieval, doe
 Observed model/cache notes:
 
 - Hugging Face Hub requests were unauthenticated. This may reduce rate limits and download speed.
-- Windows symlink cache optimization is degraded for Hugging Face cache paths such as `C:\Users\张乐航\.cache\huggingface\hub\models--BAAI--bge-m3` unless Developer Mode or administrator symlink support is enabled. Caching still works, but may use more disk.
+- Windows symlink cache optimization is degraded for Hugging Face cache paths such as `%USERPROFILE%\.cache\huggingface\hub\models--BAAI--bge-m3` unless Developer Mode or administrator symlink support is enabled. Caching still works, but may use more disk.
 - Chinese fixture strings rendered as mojibake in terminal output, matching prior Stage 3G/3H behavior. IDs, metrics, and pass/fail results remained readable and valid.
 - Initial bge-m3 background run was stopped after weights loaded but before JSON output. A foreground retry after cache warmup completed successfully.
 

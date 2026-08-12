@@ -2,6 +2,7 @@ from typing import Protocol
 
 from app.domain.models import ChatRole, EmotionState, Memory
 from app.providers.base import LLMMessage
+from app.repositories.context_sources import ContextSourceRepository, ContextSourceSnapshot
 from app.repositories.memories import MemoryRepository
 from app.repositories.messages import MessageRepository
 from app.services.emotion_context import EmotionContextFormatterProtocol
@@ -37,6 +38,23 @@ class ContextBuilder:
         self._memory_embedding_service = memory_embedding_service
         self._memory_embedding_min_score = memory_embedding_min_score
         self._emotion_context_formatter = emotion_context_formatter
+        self._context_sources = ContextSourceRepository(messages, memories)
+
+    def snapshot_sources(
+        self,
+        *,
+        session_id: str,
+        current_user_message_id: str,
+        query: str | None = None,
+    ) -> ContextSourceSnapshot:
+        return self._context_sources.snapshot(
+            session_id=session_id,
+            current_user_message_id=current_user_message_id,
+            query=query,
+            recent_limit=self._max_messages,
+            memory_limit=(self._memory_context_limit if self._memory_context_enabled else 0),
+            memory_fallback_limit=self._memory_retrieval_fallback_limit,
+        )
 
     def build_recent_context(self, session_id: str) -> list[LLMMessage]:
         recent_messages = self._messages.list_recent(session_id, self._max_messages)

@@ -27,6 +27,11 @@ frontend/*.tsbuildinfo
 frontend/test-results/
 frontend/playwright-report/
 frontend/.playwright/
+test-results/
+
+# Claude Code internal working files
+.superpowers/brainstorm/
+*.tmp.*
 
 # Generated browser VAD/ONNX assets copied from node_modules for local Vite serving
 frontend/public/vendor/vad/

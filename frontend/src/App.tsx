@@ -1,7 +1,41 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { displayLabelForAssistantMessage } from './expression/displayLabel';
 import { apiClient } from './api/client';
-import type { CreateMemoryRequest, EmotionAnalysisAudit, EmotionAnalysisConsent, EmotionAnalysisConsentAction, EmotionEvent, EmotionState, MemoryRecord, Message, Session, UpdateMemoryRequest } from './api/types';
+import type {
+  CreateMemoryRequest,
+  EmotionAnalysisAudit,
+  EmotionAnalysisConsent,
+  EmotionAnalysisConsentAction,
+  EmotionEvent,
+  EmotionState,
+  MemoryConflict,
+  MemoryConflictResolutionRequest,
+  MemoryEvidencePage,
+  MemoryJobSummary,
+  MemoryRecord,
+  MemoryVersionPage,
+  MemoryWriteConsent,
+  MemoryWriteConsentAction,
+  Message,
+  PersonaActivateRequest,
+  PersonaArtifact,
+  PersonaCapabilities,
+  PersonaCreateRequest,
+  PersonaRedactRequest,
+  Session,
+  SummaryAudit,
+  SummaryAuthorityMutationRequest,
+  SummaryCapabilities,
+  SummaryInjectionConsent,
+  SummaryItem,
+  SummaryJob,
+  SummaryJobMutationRequest,
+  SummaryProcessingConsent,
+  SummaryRebuildRequest,
+  SummaryRedactRequest,
+  SummaryStatus,
+  UpdateMemoryRequest,
+} from './api/types';
 import { ChatLayout } from './components/ChatLayout';
 import { useAudioPlaybackController } from './hooks/useAudioPlaybackController';
 import { useAudioInputDevices } from './hooks/useAudioInputDevices';
@@ -21,8 +55,26 @@ export function App() {
   const [memories, setMemories] = useState<MemoryRecord[]>([]);
   const [memoryCandidates, setMemoryCandidates] = useState<MemoryRecord[]>([]);
   const [memoryLoading, setMemoryLoading] = useState(false);
+  const [memoryGateBLoading, setMemoryGateBLoading] = useState(false);
   const [memoryError, setMemoryError] = useState<string | null>(null);
   const [memoryConflicts, setMemoryConflicts] = useState<MemoryRecord[]>([]);
+  const [gateBMemoryConflicts, setGateBMemoryConflicts] = useState<MemoryConflict[]>([]);
+  const [memoryWriteConsent, setMemoryWriteConsent] = useState<MemoryWriteConsent | null>(null);
+  const [latestMemoryJob, setLatestMemoryJob] = useState<MemoryJobSummary | null>(null);
+  const [personaCurrent, setPersonaCurrent] = useState<PersonaArtifact | null>(null);
+  const [personaArtifacts, setPersonaArtifacts] = useState<PersonaArtifact[]>([]);
+  const [personaCapabilities, setPersonaCapabilities] = useState<PersonaCapabilities | null>(null);
+  const [personaLoading, setPersonaLoading] = useState(false);
+  const [personaError, setPersonaError] = useState<string | null>(null);
+  const [summaryCapabilities, setSummaryCapabilities] = useState<SummaryCapabilities | null>(null);
+  const [summaryProcessingConsent, setSummaryProcessingConsent] = useState<SummaryProcessingConsent | null>(null);
+  const [summaryInjectionConsent, setSummaryInjectionConsent] = useState<SummaryInjectionConsent | null>(null);
+  const [summaryStatus, setSummaryStatus] = useState<SummaryStatus | null>(null);
+  const [summaries, setSummaries] = useState<SummaryItem[]>([]);
+  const [summaryJobs, setSummaryJobs] = useState<SummaryJob[]>([]);
+  const [summaryAudits, setSummaryAudits] = useState<SummaryAudit[]>([]);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
   const [emotionState, setEmotionState] = useState<EmotionState | null>(null);
   const [emotionEvents, setEmotionEvents] = useState<EmotionEvent[]>([]);
   const [emotionAnalysisConsent, setEmotionAnalysisConsent] = useState<EmotionAnalysisConsent | null>(null);
@@ -50,6 +102,10 @@ export function App() {
   const emotionRequestGenerationRef = useRef(0);
   const emotionConsentGenerationRef = useRef(0);
   const emotionAuditGenerationRef = useRef(0);
+  const memoryConsentGenerationRef = useRef(0);
+  const personaRequestGenerationRef = useRef(0);
+  const summaryRequestGenerationRef = useRef(0);
+  const summaryMutationGenerationRef = useRef(0);
   const voiceTurnGenerationRef = useRef(0);
   const textSendGenerationRef = useRef(0);
   const messageLoadGenerationRef = useRef(0);
@@ -178,6 +234,222 @@ export function App() {
     }
   }
 
+  async function loadMemoryGateB() {
+    const consentGeneration = memoryConsentGenerationRef.current;
+    setMemoryGateBLoading(true);
+    try {
+      const [consent, conflictPage, jobs] = await Promise.all([
+        apiClient.getMemoryWriteConsent(),
+        apiClient.listMemoryConflicts(),
+        apiClient.listMemoryJobs(1),
+      ]);
+      if (consentGeneration === memoryConsentGenerationRef.current) {
+        setMemoryWriteConsent(consent);
+      }
+      setGateBMemoryConflicts(conflictPage.items);
+      setLatestMemoryJob(jobs[0] ?? null);
+    } catch (caught) {
+      setMemoryError(errorMessage(caught));
+    } finally {
+      setMemoryGateBLoading(false);
+    }
+  }
+
+  async function refreshMemoryCollections() {
+    const [active, pending, conflictPage, jobs] = await Promise.all([
+      apiClient.listMemories(),
+      apiClient.listMemories('pending'),
+      apiClient.listMemoryConflicts(),
+      apiClient.listMemoryJobs(1),
+    ]);
+    setMemories(active);
+    setMemoryCandidates(pending);
+    setGateBMemoryConflicts(conflictPage.items);
+    setLatestMemoryJob(jobs[0] ?? null);
+  }
+
+  function refreshAutomaticMemoryAfterTurn() {
+    if (import.meta.env.MODE === 'test' && import.meta.env.VITE_ENABLE_GATE_B_MEMORY_LOAD_IN_TEST !== '1') return;
+    void loadMemories();
+    void loadMemoryCandidates();
+    void loadMemoryGateB();
+  }
+
+  async function loadPersona() {
+    const generation = ++personaRequestGenerationRef.current;
+    setPersonaLoading(true);
+    try {
+      const [current, artifacts, capabilities] = await Promise.all([
+        apiClient.getCurrentPersona(),
+        apiClient.listPersonaArtifacts(),
+        apiClient.getPersonaCapabilities(),
+      ]);
+      if (generation !== personaRequestGenerationRef.current) return;
+      setPersonaCurrent(current);
+      setPersonaArtifacts(artifacts);
+      setPersonaCapabilities(capabilities);
+      setPersonaError(null);
+    } catch (caught) {
+      if (generation !== personaRequestGenerationRef.current) return;
+      setPersonaError(errorMessage(caught));
+    } finally {
+      if (generation === personaRequestGenerationRef.current) setPersonaLoading(false);
+    }
+  }
+
+  async function runPersonaMutation(
+    operation: () => Promise<unknown>,
+  ) {
+    const generation = ++personaRequestGenerationRef.current;
+    setPersonaLoading(true);
+    setPersonaError(null);
+    try {
+      await operation();
+      if (generation !== personaRequestGenerationRef.current) return;
+      const [current, artifacts, capabilities] = await Promise.all([
+        apiClient.getCurrentPersona(),
+        apiClient.listPersonaArtifacts(),
+        apiClient.getPersonaCapabilities(),
+      ]);
+      if (generation !== personaRequestGenerationRef.current) return;
+      setPersonaCurrent(current);
+      setPersonaArtifacts(artifacts);
+      setPersonaCapabilities(capabilities);
+    } catch (caught) {
+      if (generation !== personaRequestGenerationRef.current) return;
+      setPersonaError(errorMessage(caught));
+      try {
+        const [current, artifacts, capabilities] = await Promise.all([
+          apiClient.getCurrentPersona(),
+          apiClient.listPersonaArtifacts(),
+          apiClient.getPersonaCapabilities(),
+        ]);
+        if (generation !== personaRequestGenerationRef.current) return;
+        setPersonaCurrent(current);
+        setPersonaArtifacts(artifacts);
+        setPersonaCapabilities(capabilities);
+      } catch {
+        // Preserve the mutation error while best-effort conflict refresh fails.
+      }
+    } finally {
+      if (generation === personaRequestGenerationRef.current) setPersonaLoading(false);
+    }
+  }
+
+  async function handleCreatePersona(request: PersonaCreateRequest) {
+    await runPersonaMutation(() => apiClient.createPersonaArtifact(request));
+  }
+
+  async function handleActivatePersona(request: PersonaActivateRequest) {
+    await runPersonaMutation(() => apiClient.activatePersona(request));
+  }
+
+  async function handleRedactPersona(
+    artifactId: string,
+    request: PersonaRedactRequest,
+  ) {
+    await runPersonaMutation(() => apiClient.redactPersonaArtifact(artifactId, request));
+  }
+
+  async function fetchSummaryState() {
+    const [capabilities, processingConsent, injectionConsent, status, summaryPage, jobPage, auditPage] = await Promise.all([
+      apiClient.getSummaryCapabilities(),
+      apiClient.getSummaryProcessingConsent(),
+      apiClient.getSummaryInjectionConsent(),
+      apiClient.getSummaryStatus(),
+      apiClient.listSummaries({ limit: 100 }),
+      apiClient.listSummaryJobs({ limit: 100 }),
+      apiClient.listSummaryAudits({ limit: 100 }),
+    ]);
+    return { capabilities, processingConsent, injectionConsent, status, summaryPage, jobPage, auditPage };
+  }
+
+  function applySummaryState(state: Awaited<ReturnType<typeof fetchSummaryState>>) {
+    setSummaryCapabilities(state.capabilities);
+    setSummaryProcessingConsent(state.processingConsent);
+    setSummaryInjectionConsent(state.injectionConsent);
+    setSummaryStatus(state.status);
+    setSummaries(state.summaryPage.items);
+    setSummaryJobs(state.jobPage.items);
+    setSummaryAudits(state.auditPage.items);
+  }
+
+  async function loadSummaries() {
+    const requestGeneration = ++summaryRequestGenerationRef.current;
+    const mutationGeneration = summaryMutationGenerationRef.current;
+    setSummaryLoading(true);
+    try {
+      const state = await fetchSummaryState();
+      if (
+        requestGeneration !== summaryRequestGenerationRef.current ||
+        mutationGeneration !== summaryMutationGenerationRef.current
+      ) return;
+      applySummaryState(state);
+      setSummaryError(null);
+    } catch (caught) {
+      if (
+        requestGeneration === summaryRequestGenerationRef.current &&
+        mutationGeneration === summaryMutationGenerationRef.current
+      ) setSummaryError(errorMessage(caught));
+    } finally {
+      if (requestGeneration === summaryRequestGenerationRef.current) {
+        setSummaryLoading(false);
+      }
+    }
+  }
+
+  async function runSummaryMutation(operation: () => Promise<unknown>) {
+    const mutationGeneration = ++summaryMutationGenerationRef.current;
+    summaryRequestGenerationRef.current += 1;
+    setSummaryLoading(true);
+    setSummaryError(null);
+    try {
+      await operation();
+      if (mutationGeneration !== summaryMutationGenerationRef.current) return;
+      const state = await fetchSummaryState();
+      if (mutationGeneration !== summaryMutationGenerationRef.current) return;
+      applySummaryState(state);
+    } catch (caught) {
+      if (mutationGeneration !== summaryMutationGenerationRef.current) return;
+      setSummaryError(errorMessage(caught));
+      try {
+        const state = await fetchSummaryState();
+        if (mutationGeneration !== summaryMutationGenerationRef.current) return;
+        applySummaryState(state);
+      } catch {
+        // Preserve the mutation error while best-effort conflict refresh fails.
+      }
+    } finally {
+      if (mutationGeneration === summaryMutationGenerationRef.current) {
+        setSummaryLoading(false);
+      }
+    }
+  }
+
+  async function handleUpdateSummaryProcessing(request: SummaryAuthorityMutationRequest) {
+    await runSummaryMutation(() => apiClient.updateSummaryProcessingConsent(request));
+  }
+
+  async function handleUpdateSummaryInjection(request: SummaryAuthorityMutationRequest) {
+    await runSummaryMutation(() => apiClient.updateSummaryInjectionConsent(request));
+  }
+
+  async function handleRedactSummary(summaryId: string, request: SummaryRedactRequest) {
+    await runSummaryMutation(() => apiClient.redactSummary(summaryId, request));
+  }
+
+  async function handleRebuildSummary(summaryId: string, request: SummaryRebuildRequest) {
+    await runSummaryMutation(() => apiClient.rebuildSummary(summaryId, request));
+  }
+
+  async function handleRetrySummaryJob(jobId: string, request: SummaryJobMutationRequest) {
+    await runSummaryMutation(() => apiClient.retrySummaryJob(jobId, request));
+  }
+
+  async function handleCancelSummaryJob(jobId: string, request: SummaryJobMutationRequest) {
+    await runSummaryMutation(() => apiClient.cancelSummaryJob(jobId, request));
+  }
+
   async function loadEmotion() {
     const generation = ++emotionRequestGenerationRef.current;
     const consentGeneration = emotionConsentGenerationRef.current;
@@ -210,6 +482,15 @@ export function App() {
     if (import.meta.env.MODE !== 'test' || import.meta.env.VITE_ENABLE_MEMORY_LOAD_IN_TEST === '1') {
       void loadMemories();
       void loadMemoryCandidates();
+      if (import.meta.env.MODE !== 'test' || import.meta.env.VITE_ENABLE_GATE_B_MEMORY_LOAD_IN_TEST === '1') {
+        void loadMemoryGateB();
+      }
+    }
+    if (import.meta.env.MODE !== 'test' || import.meta.env.VITE_ENABLE_PERSONA_LOAD_IN_TEST === '1') {
+      void loadPersona();
+    }
+    if (import.meta.env.MODE !== 'test' || import.meta.env.VITE_ENABLE_SUMMARY_LOAD_IN_TEST === '1') {
+      void loadSummaries();
     }
     if (import.meta.env.MODE !== 'test' || import.meta.env.VITE_ENABLE_EMOTION_LOAD_IN_TEST === '1') {
       void loadEmotion();
@@ -311,7 +592,7 @@ export function App() {
         sessionId,
         chatResponse.assistant_message_id,
       );
-      void loadMemoryCandidates();
+      refreshAutomaticMemoryAfterTurn();
       void loadEmotion();
     } catch (caught) {
       if (
@@ -395,6 +676,92 @@ export function App() {
     } finally {
       setMemoryLoading(false);
     }
+  }
+
+  async function handleArchiveMemory(memoryId: string) {
+    setMemoryLoading(true);
+    setMemoryError(null);
+    try {
+      await apiClient.archiveMemory(memoryId);
+      setMemories((current) => current.filter((memory) => memory.id !== memoryId));
+      setGateBMemoryConflicts((current) => current.filter(
+        (conflict) => conflict.left_memory_id !== memoryId && conflict.right_memory_id !== memoryId,
+      ));
+    } catch (caught) {
+      setMemoryError(errorMessage(caught));
+    } finally {
+      setMemoryLoading(false);
+    }
+  }
+
+  async function handleForgetMemory(memoryId: string) {
+    setMemoryLoading(true);
+    setMemoryError(null);
+    try {
+      await apiClient.forgetMemory(memoryId);
+      await refreshMemoryCollections();
+    } catch (caught) {
+      setMemoryError(errorMessage(caught));
+    } finally {
+      setMemoryLoading(false);
+    }
+  }
+
+  async function handleUndoLatestAutoMemory(memoryId: string) {
+    setMemoryLoading(true);
+    setMemoryError(null);
+    try {
+      await apiClient.undoLatestAutoMemory(memoryId);
+      await refreshMemoryCollections();
+    } catch (caught) {
+      setMemoryError(errorMessage(caught));
+      try {
+        await refreshMemoryCollections();
+      } catch {
+        // Preserve the mutation error; a failed refresh must not replace it.
+      }
+    } finally {
+      setMemoryLoading(false);
+    }
+  }
+
+  async function handleResolveMemoryConflict(conflictId: string, request: MemoryConflictResolutionRequest) {
+    setMemoryLoading(true);
+    setMemoryError(null);
+    try {
+      await apiClient.resolveMemoryConflict(conflictId, request);
+      await refreshMemoryCollections();
+    } catch (caught) {
+      setMemoryError(errorMessage(caught));
+    } finally {
+      setMemoryLoading(false);
+    }
+  }
+
+  async function handleUpdateMemoryWriteConsent(action: MemoryWriteConsentAction) {
+    const generation = ++memoryConsentGenerationRef.current;
+    setMemoryGateBLoading(true);
+    setMemoryError(null);
+    try {
+      const updated = await apiClient.updateMemoryWriteConsent(action);
+      if (generation === memoryConsentGenerationRef.current) {
+        setMemoryWriteConsent(updated);
+      }
+    } catch (caught) {
+      if (generation === memoryConsentGenerationRef.current) {
+        setMemoryError(errorMessage(caught));
+      }
+    } finally {
+      if (generation === memoryConsentGenerationRef.current) setMemoryGateBLoading(false);
+    }
+  }
+
+  function loadMemoryVersions(memoryId: string, cursor?: string | null): Promise<MemoryVersionPage> {
+    return apiClient.listMemoryVersions(memoryId, cursor);
+  }
+
+  function loadMemoryEvidence(memoryId: string, cursor?: string | null): Promise<MemoryEvidencePage> {
+    return apiClient.listMemoryEvidence(memoryId, cursor);
   }
 
   async function runEmotionStateMutation(mutate: () => Promise<EmotionState>) {
@@ -487,6 +854,7 @@ export function App() {
         sessionId,
         chatResponse.assistant_message_id,
       );
+      refreshAutomaticMemoryAfterTurn();
       if (import.meta.env.MODE !== 'test' || import.meta.env.VITE_ENABLE_EMOTION_LOAD_IN_TEST === '1') {
         void loadEmotion();
       }
@@ -495,7 +863,6 @@ export function App() {
       const played = await audioController.play(chatResponse.assistant_message_id, {
         streaming: true,
       });
-      void loadMemoryCandidates();
       if (!isCurrentVoiceTurn(sessionId, generation)) return;
 
       if (!played) {
@@ -546,9 +913,37 @@ export function App() {
       expressionPreviewLabel={expressionPreviewLabel}
       memories={memories}
       memoryCandidates={memoryCandidates}
-      memoryLoading={memoryLoading}
+      memoryLoading={memoryLoading || memoryGateBLoading}
       memoryError={memoryError}
       memoryConflicts={memoryConflicts}
+      gateBMemoryConflicts={gateBMemoryConflicts}
+      memoryWriteConsent={memoryWriteConsent}
+      latestMemoryJob={latestMemoryJob}
+      personaCurrent={personaCurrent}
+      personaArtifacts={personaArtifacts}
+      personaCapabilities={personaCapabilities}
+      personaLoading={personaLoading}
+      personaError={personaError}
+      onRetryPersona={loadPersona}
+      onCreatePersona={handleCreatePersona}
+      onActivatePersona={handleActivatePersona}
+      onRedactPersona={handleRedactPersona}
+      summaryCapabilities={summaryCapabilities}
+      summaryProcessingConsent={summaryProcessingConsent}
+      summaryInjectionConsent={summaryInjectionConsent}
+      summaryStatus={summaryStatus}
+      summaries={summaries}
+      summaryJobs={summaryJobs}
+      summaryAudits={summaryAudits}
+      summaryLoading={summaryLoading}
+      summaryError={summaryError}
+      onRetrySummaries={loadSummaries}
+      onUpdateSummaryProcessing={handleUpdateSummaryProcessing}
+      onUpdateSummaryInjection={handleUpdateSummaryInjection}
+      onRedactSummary={handleRedactSummary}
+      onRebuildSummary={handleRebuildSummary}
+      onRetrySummaryJob={handleRetrySummaryJob}
+      onCancelSummaryJob={handleCancelSummaryJob}
       emotionState={emotionState}
       emotionEvents={emotionEvents}
       emotionLoading={emotionLoading}
@@ -580,6 +975,13 @@ export function App() {
       onCreateMemory={handleCreateMemory}
       onUpdateMemory={handleUpdateMemory}
       onDeleteMemory={handleDeleteMemory}
+      onArchiveMemory={handleArchiveMemory}
+      onForgetMemory={handleForgetMemory}
+      onUndoLatestAutoMemory={handleUndoLatestAutoMemory}
+      onUpdateMemoryWriteConsent={handleUpdateMemoryWriteConsent}
+      onResolveMemoryConflict={handleResolveMemoryConflict}
+      loadMemoryVersions={loadMemoryVersions}
+      loadMemoryEvidence={loadMemoryEvidence}
       onConfirmMemoryCandidate={handleConfirmMemoryCandidate}
       onDismissMemoryCandidate={handleDismissMemoryCandidate}
       onSendAndSpeakTranscript={handleSendAndSpeakTranscript}

@@ -6,6 +6,7 @@ from app.domain.models import MemorySource, MemoryStatus, MemoryType
 from app.repositories.memories import MemoryRepository
 from app.repositories.memory_embeddings import MemoryEmbeddingRepository, content_hash
 from app.repositories.sqlite import managed_connection
+from app.repositories.versioned_memories import VersionedMemoryRepository
 from app.services.memory_embedding_service import (
     FakeMemoryEmbeddingProvider,
     MemoryEmbeddingService,
@@ -100,11 +101,107 @@ def test_embedding_search_returns_only_active_matching_provider_model(tmp_path: 
         )
 
         assert [(item.memory.id, round(item.score, 3)) for item in results] == [(active.id, 1.0)]
+def test_embedding_search_excludes_v2_open_conflict_endpoints(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'embedding-conflict.db'}"
+    with managed_connection(database_url) as connection:
+        memories = MemoryRepository(connection)
+        embeddings = MemoryEmbeddingRepository(connection)
+        first, _ = memories.create(
+            content="用户喜欢红茶。",
+            memory_type=MemoryType.PREFERENCE,
+            source=MemorySource.MANUAL,
+            source_session_id=None,
+            importance=3,
+            confidence=1.0,
+        )
+        second, _ = memories.create(
+            content="用户不喜欢红茶。",
+            memory_type=MemoryType.PREFERENCE,
+            source=MemorySource.MANUAL,
+            source_session_id=None,
+            importance=3,
+            confidence=1.0,
+        )
+        versioned = VersionedMemoryRepository(connection)
+        first_state = versioned.bootstrap_legacy(first.id)
+        second_state = versioned.bootstrap_legacy(second.id)
+        assert first_state.current_version_id and second_state.current_version_id
+        connection.execute(
+            """
+            INSERT INTO memory_conflicts (
+                conflict_id, left_memory_id, right_memory_id, status, created_at
+            ) VALUES (?, ?, ?, 'open', ?)
+            """,
+            (
+                "conflict-1",
+                min(first.id, second.id),
+                max(first.id, second.id),
+                first.created_at.isoformat(),
+            ),
+        )
+        embeddings.upsert(first.id, "fake", "fake-memory-embedding-v1", [1.0, 0.0], "a")
+        embeddings.upsert(second.id, "fake", "fake-memory-embedding-v1", [1.0, 0.0], "b")
+
+        assert memories.list_for_context(limit=10) == []
+        assert memories.list_relevant_for_context("红茶", limit=10, fallback_limit=10) == []
+        assert embeddings.search_active(
+            query_embedding=[1.0, 0.0],
+            provider="fake",
+            model="fake-memory-embedding-v1",
+            limit=5,
+            min_score=0.1,
+        ) == []
 
 
 
+def test_embedding_search_excludes_unbootstrapped_open_conflict_endpoints(
+    tmp_path: Path,
+) -> None:
+    database_url = f"sqlite:///{tmp_path / 'embedding-legacy-conflict.db'}"
+    with managed_connection(database_url) as connection:
+        memories = MemoryRepository(connection)
+        embeddings = MemoryEmbeddingRepository(connection)
+        first, _ = memories.create(
+            content="用户喜欢红茶。",
+            memory_type=MemoryType.PREFERENCE,
+            source=MemorySource.MANUAL,
+            source_session_id=None,
+            importance=3,
+            confidence=1.0,
+        )
+        second, _ = memories.create(
+            content="用户不喜欢红茶。",
+            memory_type=MemoryType.PREFERENCE,
+            source=MemorySource.MANUAL,
+            source_session_id=None,
+            importance=3,
+            confidence=1.0,
+        )
+        connection.execute(
+            """
+            INSERT INTO memory_conflicts (
+                conflict_id, left_memory_id, right_memory_id, status, created_at
+            ) VALUES (?, ?, ?, 'open', ?)
+            """,
+            (
+                "legacy-conflict",
+                min(first.id, second.id),
+                max(first.id, second.id),
+                first.created_at.isoformat(),
+            ),
+        )
+        embeddings.upsert(first.id, "fake", "fake-memory-embedding-v1", [1.0, 0.0], "a")
+        embeddings.upsert(second.id, "fake", "fake-memory-embedding-v1", [1.0, 0.0], "b")
 
-def test_fake_embedding_provider_is_deterministic_and_semantic() -> None:
+        assert embeddings.search_active(
+            query_embedding=[1.0, 0.0],
+            provider="fake",
+            model="fake-memory-embedding-v1",
+            limit=5,
+            min_score=0.1,
+        ) == []
+
+
     provider = FakeMemoryEmbeddingProvider(model="fake-memory-embedding-v1")
 
     tea = provider.embed_text("用户喜欢红茶。")

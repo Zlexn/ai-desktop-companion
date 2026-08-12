@@ -1,0 +1,102 @@
+{
+  "fixture_schema_version": "memory-gate-b-fixtures-v1",
+  "cases": [
+    {
+      "name": "safe_create",
+      "user_text": "我长期喜欢晨间散步。",
+      "existing": [],
+      "expected_decision": "create"
+    },
+    {
+      "name": "exact_support",
+      "user_text": "我还是喜欢无糖茶。",
+      "existing": ["我喜欢无糖茶。"],
+      "expected_decision": "support"
+    },
+    {
+      "name": "explicit_correction",
+      "user_text": "更正一下，我现在住在海边城市。",
+      "existing": ["我住在山城。"],
+      "expected_decision": "supersede"
+    },
+    {
+      "name": "unique_conflict",
+      "user_text": "我从来不喝咖啡。",
+      "existing": ["我喜欢咖啡。"],
+      "expected_decision": "conflict"
+    },
+    {
+      "name": "ambiguous_exact",
+      "user_text": "我喜欢阅读科幻小说。",
+      "existing": ["我喜欢阅读科幻小说。", "我喜欢阅读科幻小说。"],
+      "expected_decision": "ambiguous_exact_target"
+    },
+    {
+      "name": "ambiguous_conflict",
+      "user_text": "我不喜欢热饮。",
+      "existing": ["我喜欢热茶。", "我喜欢热可可。"],
+      "expected_decision": "ambiguous_conflict_target"
+    },
+    {
+      "name": "sensitive_reject",
+      "user_text": "我的测试密码是 example-secret-value。",
+      "existing": [],
+      "expected_decision": "reject"
+    },
+    {
+      "name": "explicit_no_memory",
+      "user_text": "不要记住我接下来随口说的内容。",
+      "existing": [],
+      "expected_decision": "reject"
+    },
+    {
+      "name": "deletion_intent",
+      "user_text": "请删除关于旧爱好的记忆。",
+      "existing": [],
+      "expected_decision": "reject"
+    },
+    {
+      "name": "assistant_invented_fact",
+      "user_text": "今天有点累。",
+      "assistant_text": "你大概喜欢用园艺放松。",
+      "existing": [],
+      "expected_decision": "unverified_user_claim"
+    },
+    {
+      "name": "exact_tombstone",
+      "user_text": "我喜欢收集明信片。",
+      "existing": [],
+      "tombstone_match": "exact",
+      "expected_decision": "skipped_tombstone"
+    },
+    {
+      "name": "subject_tombstone",
+      "user_text": "我的饮品偏好是花草茶。",
+      "existing": [],
+      "tombstone_match": "subject",
+      "expected_decision": "skipped_tombstone"
+    },
+    {
+      "name": "stale_user_edit",
+      "user_text": "我的固定学习时间是晚上。",
+      "existing": ["我的固定学习时间是早晨。"],
+      "concurrent_event": "user_edit",
+      "expected_decision": "stale_head"
+    },
+    {
+      "name": "deleted_job",
+      "user_text": "我常在周末远足。",
+      "existing": [],
+      "concurrent_event": "true_forget",
+      "expected_decision": "skipped_deletion_barrier"
+    },
+    {
+      "name": "dual_consent",
+      "user_text": "我长期偏好安静的阅读环境。",
+      "existing": [],
+      "remote_consent": "granted",
+      "write_consent": "unknown",
+      "expected_decision": "skipped_no_write_consent"
+    }
+  ]
+}

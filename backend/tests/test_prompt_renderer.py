@@ -27,6 +27,45 @@ def test_prompt_renderer_includes_character_and_stage_boundaries() -> None:
     assert "应明确说明不确定性" in prompt
 
 
+def test_prompt_renderer_loads_bootstrap_inputs() -> None:
+    renderer = default_prompt_renderer()
+
+    source = renderer.load_source_config()
+    persona = renderer.load_persona_v1_config()
+
+    assert source["identity"]["name"] == "林夕"
+    assert "{name}" in renderer.load_template_text()
+    assert persona["identity"] == source["identity"]
+    assert persona["additional_prohibitions"] == source["prohibitions"]
+    assert "prohibitions" not in persona
+
+
+def test_prompt_renderer_rejects_unexpected_legacy_keys(tmp_path: Path) -> None:
+    character_path = tmp_path / "character.yaml"
+    template_path = tmp_path / "system_prompt.txt"
+    character_path.write_text(
+        """
+identity: {name: test, species: test, role: test}
+background: test
+personality: {core_traits: [test], values: [test]}
+language_style: {tone: test, habits: [test]}
+relationship: {initial: test}
+prohibitions: []
+unexpected: true
+""".strip(),
+        encoding="utf-8",
+    )
+    template_path.write_text("{name}", encoding="utf-8")
+
+    renderer = PromptRenderer(character_path, template_path)
+    try:
+        renderer.load_persona_v1_config()
+    except ValueError as exc:
+        assert "legacy Persona config keys" in str(exc)
+    else:
+        raise AssertionError("Expected unexpected legacy keys to raise ValueError")
+
+
 def test_prompt_renderer_rejects_missing_required_config(tmp_path: Path) -> None:
     character_path = tmp_path / "character.yaml"
     template_path = tmp_path / "system_prompt.txt"

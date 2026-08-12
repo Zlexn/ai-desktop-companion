@@ -1,5 +1,6 @@
 import asyncio
 import sqlite3
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -7,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.core.config import Settings
-from app.core.errors import ProviderInvalidResponseError
+from app.core.errors import ProviderInvalidResponseError, ValidationAppError
 from app.domain.models import (
     EMOTION_BASELINE,
     ChatRole,
@@ -16,17 +17,25 @@ from app.domain.models import (
     MemoryStatus,
     MemoryType,
 )
-from app.providers.base import LLMMessage, LLMOptions, LLMResponse
+from app.providers.base import ChatDispatchBudget, LLMMessage, LLMOptions, LLMResponse
 from app.providers.fake_provider import FakeProvider
+from app.repositories.chat_turns import ChatTurnRepository
+from app.repositories.context_sources import ContextSourceRepository
 from app.repositories.memories import MemoryRepository
 from app.repositories.memory_embeddings import MemoryEmbeddingRepository
 from app.repositories.messages import MessageRepository
+from app.repositories.personas import PersonaRepository
 from app.repositories.sessions import SessionRepository
 from app.repositories.sqlite import managed_connection
 from app.services.chat_service import ChatService
 from app.services.context_builder import ContextBuilder
+from app.services.context_composer import ContextComposer, ContextProtectedOverflowError
+from app.services.context_data_encoder import ContextDataEncoder
+from app.services.emotion_context import EmotionContextFormatter
 from app.services.memory_candidate_service import MemoryCandidateService
 from app.services.memory_embedding_service import FakeMemoryEmbeddingProvider, MemoryEmbeddingService, MemoryEmbeddingUnavailableError
+from app.services.persona_compiler import PersonaCompiler
+from app.services.persona_service import PersonaService
 from app.services.prompt_renderer import default_prompt_renderer
 from app.services.session_summary_scheduler import InProcessSessionSummaryScheduler
 
@@ -44,9 +53,13 @@ class RecordingSnapshotReader:
         return self.snapshot
 
 
-class RecordingSnapshotFormatter:
+class RecordingSnapshotFormatter(EmotionContextFormatter):
     def __init__(self) -> None:
         self.seen_state: EmotionState | None = None
+
+    def to_expression_view(self, state: EmotionState):
+        self.seen_state = state
+        return super().to_expression_view(state)
 
     def format(self, state: EmotionState) -> str:
         self.seen_state = state
@@ -68,9 +81,84 @@ class RecordingExpressionPlans:
             raise RuntimeError("expression plan failed")
 
 
+class RecordingMemoryJobScheduler:
+    def __init__(self, *, fail: bool = False) -> None:
+        self.fail = fail
+        self.calls: list[tuple[str, str, str, str]] = []
+
+    def schedule(
+        self,
+        *,
+        session_id: str,
+        user_message_id: str,
+        assistant_message_id: str,
+        persona_artifact_id: str,
+        chat_turn_id: str | None = None,
+        turn_completed_at=None,
+    ) -> bool:
+        del turn_completed_at
+        if self.fail:
+            raise RuntimeError("scheduler failure")
+        self.calls.append(
+            (
+                session_id,
+                user_message_id,
+                assistant_message_id,
+                persona_artifact_id,
+            )
+        )
+        return True
+
+
 class FailingSnapshotReader:
     def get_state(self, *, apply_decay: bool = True) -> EmotionState:
         raise RuntimeError("snapshot failed")
+
+
+def _chat_service(
+    connection: sqlite3.Connection,
+    sessions: SessionRepository,
+    messages: MessageRepository,
+    context_builder: ContextBuilder,
+    _prompt_renderer,
+    provider,
+    settings: Settings,
+    *args,
+    **kwargs,
+) -> ChatService:
+    renderer = default_prompt_renderer()
+    repository = PersonaRepository(connection)
+    personas = PersonaService(
+        repository,
+        compiler=PersonaCompiler(
+            template_text=renderer.load_template_text(),
+            persona_max_characters=settings.persona_max_characters,
+        ),
+        bootstrap_config=renderer.load_persona_v1_config(),
+    )
+    if repository.inspect_startup_state().artifact_count == 0:
+        personas.bootstrap()
+    formatter = context_builder._emotion_context_formatter or EmotionContextFormatter()
+    chat_turns = kwargs.pop("chat_turns", ChatTurnRepository(connection))
+    return ChatService(
+        sessions,
+        messages,
+        chat_turns,
+        personas,
+        ContextSourceRepository(
+            messages,
+            context_builder._memories if context_builder._memory_context_enabled else None,
+            memory_retrieval_mode=context_builder._memory_retrieval_mode,
+            memory_embedding_service=context_builder._memory_embedding_service,
+            memory_embedding_min_score=context_builder._memory_embedding_min_score,
+        ),
+        ContextComposer(settings, ContextDataEncoder()),
+        provider,
+        settings,
+        *args,
+        emotion_context_formatter=formatter,
+        **kwargs,
+    )
 
 
 @pytest.mark.asyncio
@@ -86,7 +174,7 @@ async def test_chat_service_reads_one_snapshot_for_context_and_plan(tmp_path: Pa
         reader = RecordingSnapshotReader(snapshot)
         formatter = RecordingSnapshotFormatter()
         plans = RecordingExpressionPlans()
-        service = ChatService(
+        service = _chat_service(connection,
             sessions,
             messages,
             ContextBuilder(messages, 12, emotion_context_formatter=formatter),
@@ -114,7 +202,7 @@ async def test_snapshot_failure_keeps_text_reply_and_skips_plan(tmp_path: Path) 
         messages = MessageRepository(connection)
         session = sessions.create("snapshot failure")
         plans = RecordingExpressionPlans()
-        service = ChatService(
+        service = _chat_service(connection,
             sessions,
             messages,
             ContextBuilder(messages, 12, emotion_context_formatter=RecordingSnapshotFormatter()),
@@ -147,7 +235,7 @@ async def test_plan_failure_does_not_block_reply_local_update_or_remote_schedule
         )
         updater = RecordingEmotionUpdater()
         scheduler = RecordingEmotionAnalysisScheduler(messages)
-        service = ChatService(
+        service = _chat_service(connection,
             sessions,
             messages,
             ContextBuilder(messages, 12, emotion_context_formatter=RecordingSnapshotFormatter()),
@@ -166,17 +254,9 @@ async def test_plan_failure_does_not_block_reply_local_update_or_remote_schedule
         assert scheduler.assistant_ids == updater.assistant_ids
 
 
-class FailingAssistantMessageRepository:
-    def __init__(self, wrapped: MessageRepository) -> None:
-        self._wrapped = wrapped
-
-    def add(self, session_id, role, content, metadata=None):
-        if role is ChatRole.ASSISTANT:
-            raise RuntimeError("assistant persistence failed")
-        return self._wrapped.add(session_id, role, content, metadata)
-
-    def list_recent(self, session_id: str, limit: int):
-        return self._wrapped.list_recent(session_id, limit)
+class FailingChatTurnRepository:
+    def append_assistant_turn(self, **_kwargs):
+        raise RuntimeError("assistant persistence failed")
 
 
 @pytest.mark.asyncio
@@ -190,12 +270,12 @@ async def test_plan_is_not_created_before_valid_response_and_assistant_persisten
         sessions = SessionRepository(connection)
         messages = MessageRepository(connection)
         session = sessions.create("no early plan")
-        repository = messages if provider.mode == "empty" else FailingAssistantMessageRepository(messages)
+        repository = messages
         snapshot = EmotionState(
             "default-companion", True, EMOTION_BASELINE, 9, datetime.now(UTC)
         )
         plans = RecordingExpressionPlans()
-        service = ChatService(
+        service = _chat_service(connection,
             sessions,
             repository,  # type: ignore[arg-type]
             ContextBuilder(repository, 12, emotion_context_formatter=RecordingSnapshotFormatter()),  # type: ignore[arg-type]
@@ -204,6 +284,11 @@ async def test_plan_is_not_created_before_valid_response_and_assistant_persisten
             Settings(llm_model="test-model"),
             emotion_snapshot_reader=RecordingSnapshotReader(snapshot),
             expression_plans=plans,
+            chat_turns=(
+                FailingChatTurnRepository()
+                if provider.mode != "empty"
+                else ChatTurnRepository(connection)
+            ),
         )
 
         with pytest.raises((ProviderInvalidResponseError, RuntimeError)):
@@ -268,7 +353,7 @@ async def test_chat_service_schedules_emotion_analysis_after_local_update_and_pe
         session = sessions.create("分析调度")
         updater = RecordingEmotionUpdater()
         scheduler = RecordingEmotionAnalysisScheduler(messages)
-        service = ChatService(
+        service = _chat_service(connection,
             sessions,
             messages,
             ContextBuilder(messages, 12),
@@ -301,7 +386,7 @@ async def test_chat_service_does_not_schedule_remote_analysis_when_local_update_
         messages = MessageRepository(connection)
         session = sessions.create("本地更新失败")
         scheduler = RecordingEmotionAnalysisScheduler(messages)
-        service = ChatService(
+        service = _chat_service(connection,
             sessions,
             messages,
             ContextBuilder(messages, 12),
@@ -335,7 +420,7 @@ async def test_chat_service_ignores_emotion_analysis_scheduling_failure(tmp_path
         sessions = SessionRepository(connection)
         messages = MessageRepository(connection)
         session = sessions.create("分析调度失败")
-        service = ChatService(
+        service = _chat_service(connection,
             sessions,
             messages,
             ContextBuilder(messages, 12),
@@ -358,10 +443,12 @@ class RecordingSummaryScheduler:
     def __init__(self, messages: MessageRepository) -> None:
         self._messages = messages
         self.session_ids: list[str] = []
+        self.chat_turn_ids: list[str | None] = []
         self.roles_seen_at_schedule: list[list[ChatRole]] = []
 
-    def schedule(self, session_id: str) -> None:
+    def schedule(self, session_id: str, *, chat_turn_id: str | None = None) -> None:
         self.session_ids.append(session_id)
+        self.chat_turn_ids.append(chat_turn_id)
         self.roles_seen_at_schedule.append(
             [message.role for message in self._messages.list(session_id)]
         )
@@ -375,7 +462,7 @@ async def test_chat_service_schedules_summary_after_assistant_persistence(tmp_pa
         messages = MessageRepository(connection)
         session = sessions.create("摘要调度")
         scheduler = RecordingSummaryScheduler(messages)
-        service = ChatService(
+        service = _chat_service(connection,
             sessions,
             messages,
             ContextBuilder(messages, 12),
@@ -392,10 +479,18 @@ async def test_chat_service_schedules_summary_after_assistant_persistence(tmp_pa
         assert scheduler.roles_seen_at_schedule == [
             [ChatRole.USER, ChatRole.ASSISTANT]
         ]
+        turn = connection.execute(
+            "SELECT id, user_message_id, assistant_message_id FROM chat_turns"
+        ).fetchone()
+        assert turn is not None
+        assert scheduler.chat_turn_ids == [str(turn["id"])]
+        stored = messages.list(session.id)
+        assert tuple(turn)[1:] == (stored[0].id, stored[1].id)
 
 
 class FailingSummaryScheduler:
-    def schedule(self, session_id: str) -> None:
+    def schedule(self, session_id: str, *, chat_turn_id: str | None = None) -> None:
+        del session_id, chat_turn_id
         raise RuntimeError("summary scheduler failed")
 
 
@@ -406,7 +501,7 @@ async def test_chat_service_ignores_summary_scheduling_failure(tmp_path: Path) -
         sessions = SessionRepository(connection)
         messages = MessageRepository(connection)
         session = sessions.create("摘要调度失败")
-        service = ChatService(
+        service = _chat_service(connection,
             sessions,
             messages,
             ContextBuilder(messages, 12),
@@ -541,66 +636,296 @@ async def test_in_process_summary_scheduler_shutdown_does_not_restart_dirty_job(
     assert calls == ["session-1"]
 
 
-def test_context_budget_removes_oldest_history_before_newer_history() -> None:
-    messages = [
-        LLMMessage(role=ChatRole.SYSTEM, content="role"),
-        LLMMessage(role=ChatRole.USER, content="oldest-history"),
-        LLMMessage(role=ChatRole.ASSISTANT, content="newest-history"),
-        LLMMessage(role=ChatRole.USER, content="current"),
-    ]
+class BlockingChatProvider:
+    provider_name = "fake"
 
-    fitted = ChatService._fit_provider_messages(messages, 31)
+    def __init__(self) -> None:
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
 
-    assert [message.content for message in fitted] == ["role", "newest-history", "current"]
-
-
-def test_context_budget_counts_system_join_separators() -> None:
-    messages = [
-        LLMMessage(role=ChatRole.SYSTEM, content="role"),
-        LLMMessage(role=ChatRole.SYSTEM, content="memory"),
-        LLMMessage(role=ChatRole.USER, content="x" * 20),
-    ]
-
-    fitted = ChatService._fit_provider_messages(messages, 30)
-
-    assert fitted == [messages[0], messages[-1]]
+    async def generate(
+        self,
+        messages: list[LLMMessage],
+        options: LLMOptions,
+    ) -> LLMResponse:
+        self.started.set()
+        await self.release.wait()
+        return LLMResponse(
+            text="reply after switch",
+            provider="fake",
+            model=options.model,
+        )
 
 
-def test_context_budget_keeps_memory_until_history_is_removed() -> None:
-    messages = [
-        LLMMessage(role=ChatRole.SYSTEM, content="role"),
-        LLMMessage(role=ChatRole.SYSTEM, content="memory-context"),
-        LLMMessage(role=ChatRole.USER, content="old-history"),
-        LLMMessage(role=ChatRole.USER, content="current"),
-    ]
+@pytest.mark.asyncio
+async def test_inflight_persona_switch_keeps_reply_and_job_on_frozen_artifact(
+    tmp_path: Path,
+) -> None:
+    database_url = f"sqlite:///{tmp_path / 'inflight-persona.db'}"
+    with managed_connection(database_url) as connection:
+        sessions = SessionRepository(connection)
+        messages = MessageRepository(connection)
+        session = sessions.create("inflight persona")
+        provider = BlockingChatProvider()
+        scheduler = RecordingMemoryJobScheduler()
+        settings = replace(
+            Settings(llm_model="test-model"),
+            memory_automation_mode="shadow_auto",
+        )
+        service = _chat_service(
+            connection,
+            sessions,
+            messages,
+            ContextBuilder(messages, 12),
+            default_prompt_renderer(),
+            provider,
+            settings,
+            memory_job_scheduler=scheduler,
+        )
+        before = service._persona_service.current()
 
-    fitted = ChatService._fit_provider_messages(messages, 30)
+        turn = asyncio.create_task(service.send_message(session.id, "hello"))
+        await provider.started.wait()
+        replacement = default_prompt_renderer().load_persona_v1_config()
+        replacement["identity"] = {
+            **replacement["identity"],
+            "name": "切换后的角色",
+        }
+        after = service._persona_service.create_and_activate(
+            replacement,
+            expected_artifact_id=before.artifact.id,
+            expected_generation=before.active.activation_generation,
+        )
+        provider.release.set()
+        reply = await turn
 
-    assert [message.content for message in fitted] == ["role", "memory-context", "current"]
+        assistant = messages.get(reply.assistant_message_id)
+        assert assistant is not None
+        manifest_persona_id = assistant.metadata["context_manifest"][
+            "persona_artifact_id"
+        ]
+        assert manifest_persona_id == before.artifact.id
+        assert after.artifact.id != before.artifact.id
+        stored_messages = messages.list(session.id)
+        assert scheduler.calls == [
+            (
+                session.id,
+                stored_messages[0].id,
+                reply.assistant_message_id,
+                before.artifact.id,
+            )
+        ]
 
 
-def test_context_budget_removes_memory_after_history() -> None:
-    messages = [
-        LLMMessage(role=ChatRole.SYSTEM, content="role"),
-        LLMMessage(role=ChatRole.SYSTEM, content="large-memory-context"),
-        LLMMessage(role=ChatRole.USER, content="current"),
-    ]
+class CollidingMetadataProvider:
+    provider_name = "fake"
 
-    fitted = ChatService._fit_provider_messages(messages, 11)
+    def __init__(self) -> None:
+        self.calls: list[tuple[list[LLMMessage], LLMOptions]] = []
 
-    assert [message.content for message in fitted] == ["role", "current"]
+    async def generate(
+        self,
+        messages: list[LLMMessage],
+        options: LLMOptions,
+    ) -> LLMResponse:
+        self.calls.append((messages, options))
+        return LLMResponse(
+            text="safe reply",
+            provider="fake",
+            model=options.model,
+            metadata={
+                "context_manifest": {
+                    "persona_artifact_id": "attacker",
+                    "prompt": "leak",
+                },
+                "provider_metric": 7,
+                "finish_reason": "stop",
+            },
+        )
 
 
-def test_context_budget_allows_hard_preserved_overflow_without_truncation() -> None:
-    messages = [
-        LLMMessage(role=ChatRole.SYSTEM, content="role-system"),
-        LLMMessage(role=ChatRole.USER, content="current-user-message"),
-    ]
+class FailingMemorySources:
+    def list_context_sources(self, *args, **kwargs):
+        raise RuntimeError("memory retrieval failed")
 
-    fitted = ChatService._fit_provider_messages(messages, 5)
 
-    assert fitted == messages
-    assert sum(len(message.content) for message in fitted) > 5
+@pytest.mark.asyncio
+async def test_gate_c1_rejects_current_user_limit_before_persistence(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'current-limit.db'}"
+    with managed_connection(database_url) as connection:
+        sessions = SessionRepository(connection)
+        messages = MessageRepository(connection)
+        session = sessions.create("current limit")
+        provider = FakeProvider()
+        settings = Settings(llm_model="test-model")
+        service = _chat_service(
+            connection,
+            sessions,
+            messages,
+            ContextBuilder(messages, 12),
+            default_prompt_renderer(),
+            provider,
+            settings,
+        )
+
+        with pytest.raises(ValidationAppError, match="消息内容过长"):
+            await service.send_message(session.id, "x" * 8001)
+
+        assert messages.list(session.id) == []
+        assert provider.calls == []
+
+
+@pytest.mark.asyncio
+async def test_gate_c1_current_message_exact_once_last_and_dispatch_budget(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'exact-current.db'}"
+    with managed_connection(database_url) as connection:
+        sessions = SessionRepository(connection)
+        messages = MessageRepository(connection)
+        session = sessions.create("exact current")
+        messages.add(session.id, ChatRole.USER, "prior")
+        messages.add(session.id, ChatRole.ASSISTANT, "prior reply")
+        provider = CollidingMetadataProvider()
+        settings = Settings(llm_model="test-model")
+        service = _chat_service(
+            connection,
+            sessions,
+            messages,
+            ContextBuilder(messages, 12),
+            default_prompt_renderer(),
+            provider,
+            settings,
+        )
+
+        reply = await service.send_message(session.id, "current")
+
+        sent, options = provider.calls[0]
+        assert [(message.role, message.content) for message in sent[-3:]] == [
+            (ChatRole.USER, "prior"),
+            (ChatRole.ASSISTANT, "prior reply"),
+            (ChatRole.USER, "current"),
+        ]
+        assert sum(message.content == "current" for message in sent) == 1
+        assert isinstance(options.chat_dispatch_budget, ChatDispatchBudget)
+        stored = messages.get(reply.assistant_message_id)
+        assert stored is not None
+        manifest = stored.metadata["context_manifest"]
+        assert manifest["schema_version"] == "context-manifest-v2"
+        assert manifest["persona_artifact_id"] != "attacker"
+        assert manifest["selected_recent_message_ids"] == [
+            message.id for message in messages.list(session.id)[:2]
+        ]
+        assert stored.metadata["finish_reason"] == "stop"
+        assert "provider_metric" not in stored.metadata
+        assert "prompt" not in str(manifest).lower()
+        assert options.chat_dispatch_budget.expected_normalized_characters == (
+            manifest["provider_character_count"]
+        )
+        assert options.chat_dispatch_budget.max_normalized_characters == (
+            manifest["max_characters"]
+        )
+        assert options.chat_dispatch_budget.expected_normalized_characters <= (
+            options.chat_dispatch_budget.max_normalized_characters
+        )
+
+
+@pytest.mark.asyncio
+async def test_gate_c1_optional_source_and_emotion_failures_degrade(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'optional-failure.db'}"
+    with managed_connection(database_url) as connection:
+        sessions = SessionRepository(connection)
+        messages = MessageRepository(connection)
+        session = sessions.create("optional failures")
+        provider = FakeProvider()
+        settings = Settings(llm_model="test-model")
+        service = _chat_service(
+            connection,
+            sessions,
+            messages,
+            ContextBuilder(messages, 12),
+            default_prompt_renderer(),
+            provider,
+            settings,
+            emotion_snapshot_reader=FailingSnapshotReader(),
+        )
+        service._context_sources = ContextSourceRepository(
+            messages,
+            FailingMemorySources(),  # type: ignore[arg-type]
+        )
+
+        reply = await service.send_message(session.id, "hello")
+
+        assert reply.reply
+        assert [message.role for message in provider.calls[0]] == [
+            ChatRole.SYSTEM,
+            ChatRole.USER,
+        ]
+        stored = messages.get(reply.assistant_message_id)
+        assert stored is not None
+        assert stored.metadata["context_manifest"]["selected_memory_version_ids"] == []
+        assert stored.metadata["context_manifest"]["source_emotion_version"] is None
+
+
+@pytest.mark.asyncio
+async def test_gate_c1_recent_source_failure_is_not_silently_discarded(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'recent-failure.db'}"
+    with managed_connection(database_url) as connection:
+        sessions = SessionRepository(connection)
+        messages = MessageRepository(connection)
+        session = sessions.create("recent failure")
+        provider = FakeProvider()
+        settings = Settings(llm_model="test-model")
+        service = _chat_service(
+            connection,
+            sessions,
+            messages,
+            ContextBuilder(messages, 12),
+            default_prompt_renderer(),
+            provider,
+            settings,
+        )
+
+        class FailingRecentMessages:
+            def list_recent_excluding(self, *args, **kwargs):
+                raise RuntimeError("recent snapshot failed")
+
+        service._context_sources = ContextSourceRepository(
+            FailingRecentMessages(),  # type: ignore[arg-type]
+            None,
+        )
+
+        with pytest.raises(RuntimeError, match="recent snapshot failed"):
+            await service.send_message(session.id, "hello")
+        assert provider.calls == []
+
+
+@pytest.mark.asyncio
+async def test_gate_c1_protected_overflow_calls_no_provider(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'protected-overflow.db'}"
+    with managed_connection(database_url) as connection:
+        sessions = SessionRepository(connection)
+        messages = MessageRepository(connection)
+        session = sessions.create("protected overflow")
+        provider = FakeProvider()
+        settings = Settings(
+            llm_model="test-model",
+            chat_context_max_characters=2001,
+            persona_max_characters=1024,
+            chat_current_user_max_characters=1002,
+        )
+        service = _chat_service(
+            connection,
+            sessions,
+            messages,
+            ContextBuilder(messages, 12),
+            default_prompt_renderer(),
+            provider,
+            settings,
+        )
+
+        with pytest.raises(ContextProtectedOverflowError):
+            await service.send_message(session.id, "x" * 1002)
+
+        assert provider.calls == []
 
 
 @pytest.mark.asyncio
@@ -614,13 +939,13 @@ async def test_chat_service_persists_pruned_history_unchanged(tmp_path: Path) ->
             messages.add(session.id, ChatRole.USER, "old-user" * 10),
             messages.add(session.id, ChatRole.ASSISTANT, "old-assistant" * 10),
         ]
-        service = ChatService(
+        service = _chat_service(connection,
             sessions,
             messages,
             ContextBuilder(messages, 12),
             default_prompt_renderer(),
             FakeProvider(),
-            Settings(llm_model="test-model", chat_context_max_characters=200),
+            Settings(llm_model="test-model", chat_context_max_characters=2048),
         )
 
         await service.send_message(session.id, "current")
@@ -642,7 +967,7 @@ async def test_chat_service_persists_user_and_assistant_messages(tmp_path: Path)
         messages = MessageRepository(connection)
         session = sessions.create("聊天")
         provider = FakeProvider()
-        service = ChatService(
+        service = _chat_service(connection,
             sessions,
             messages,
             ContextBuilder(messages, 12),
@@ -671,7 +996,7 @@ async def test_chat_service_sends_system_prompt_and_full_recent_context_on_secon
         messages = MessageRepository(connection)
         session = sessions.create("上下文")
         provider = FakeProvider()
-        service = ChatService(
+        service = _chat_service(connection,
             sessions,
             messages,
             ContextBuilder(messages, 12),
@@ -720,7 +1045,7 @@ async def test_chat_service_passes_current_user_text_for_memory_relevance(tmp_pa
             metadata={},
         )
         provider = FakeProvider()
-        service = ChatService(
+        service = _chat_service(connection,
             sessions,
             messages,
             ContextBuilder(
@@ -776,7 +1101,7 @@ async def test_chat_service_uses_embedding_selected_memory_context(tmp_path: Pat
         embedding_service.ensure_embedding(tea)
         embedding_service.ensure_embedding(project)
         provider = FakeProvider()
-        service = ChatService(
+        service = _chat_service(connection,
             sessions,
             messages,
             ContextBuilder(
@@ -809,7 +1134,7 @@ async def test_chat_service_uses_embedding_selected_memory_context(tmp_path: Pat
         for index in range(5):
             messages.add(session.id, ChatRole.USER, f"旧消息 {index}")
         provider = FakeProvider()
-        service = ChatService(
+        service = _chat_service(connection,
             sessions,
             messages,
             ContextBuilder(messages, 3),
@@ -834,7 +1159,7 @@ async def test_chat_service_maps_invalid_provider_response(tmp_path: Path) -> No
         messages = MessageRepository(connection)
         session = sessions.create("错误")
         scheduler = RecordingSummaryScheduler(messages)
-        service = ChatService(
+        service = _chat_service(connection,
             sessions,
             messages,
             ContextBuilder(messages, 12),
@@ -848,11 +1173,148 @@ async def test_chat_service_maps_invalid_provider_response(tmp_path: Path) -> No
             await service.send_message(session.id, "触发错误")
 
         assert scheduler.session_ids == []
+        assert connection.execute("SELECT COUNT(*) FROM chat_turns").fetchone()[0] == 0
+        assert [message.role for message in messages.list(session.id)] == [ChatRole.USER]
 
 
 class FailingMemoryCandidateService:
     async def create_candidates_from_user_text(self, *, session_id: str | None, user_text: str):
         raise RuntimeError("candidate extraction failed")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("mode", "expected_pending", "expected_scheduler_calls"),
+    [
+        ("off", 0, 0),
+        ("candidate_confirmation", 1, 0),
+        ("shadow_auto", 0, 1),
+    ],
+)
+async def test_completed_turn_uses_exactly_one_memory_mode_branch(
+    tmp_path: Path,
+    mode: str,
+    expected_pending: int,
+    expected_scheduler_calls: int,
+) -> None:
+    database_url = f"sqlite:///{tmp_path / f'{mode}.db'}"
+    with managed_connection(database_url) as connection:
+        sessions = SessionRepository(connection)
+        messages = MessageRepository(connection)
+        memories = MemoryRepository(connection)
+        session = sessions.create(mode)
+        settings = replace(
+            Settings(llm_model="test-model", memory_candidates_enabled=True),
+            memory_automation_mode=mode,
+        )
+        scheduler = RecordingMemoryJobScheduler()
+        service = _chat_service(connection,
+            sessions,
+            messages,
+            ContextBuilder(messages, 12),
+            default_prompt_renderer(),
+            FakeProvider(),
+            settings,
+            memory_candidates=MemoryCandidateService(memories, settings),
+            memory_job_scheduler=scheduler,
+        )
+
+        reply = await service.send_message(session.id, "我喜欢红茶。")
+
+        assert len(memories.list(status=MemoryStatus.PENDING)) == expected_pending
+        assert len(scheduler.calls) == expected_scheduler_calls
+        if scheduler.calls:
+            scheduled_session, user_id, assistant_id, persona_id = scheduler.calls[0]
+            stored = messages.list(session.id)
+            assert scheduled_session == session.id
+            assert user_id == stored[0].id
+            assert assistant_id == reply.assistant_message_id == stored[1].id
+            assert persona_id == stored[1].metadata["context_manifest"][
+                "persona_artifact_id"
+            ]
+
+
+@pytest.mark.asyncio
+async def test_shadow_scheduler_failure_does_not_rollback_persisted_reply(
+    tmp_path: Path,
+) -> None:
+    database_url = f"sqlite:///{tmp_path / 'shadow-scheduler-failure.db'}"
+    with managed_connection(database_url) as connection:
+        sessions = SessionRepository(connection)
+        messages = MessageRepository(connection)
+        session = sessions.create("shadow scheduler failure")
+        service = _chat_service(connection,
+            sessions,
+            messages,
+            ContextBuilder(messages, 12),
+            default_prompt_renderer(),
+            FakeProvider(),
+            replace(Settings(llm_model="test-model"), memory_automation_mode="shadow_auto"),
+            memory_job_scheduler=RecordingMemoryJobScheduler(fail=True),
+        )
+
+        reply = await service.send_message(session.id, "我喜欢红茶。")
+
+        stored = messages.list(session.id)
+        assert reply.assistant_message_id == stored[-1].id
+        assert [message.role for message in stored] == [
+            ChatRole.USER,
+            ChatRole.ASSISTANT,
+        ]
+
+
+@pytest.mark.asyncio
+async def test_provider_failure_does_not_schedule_shadow_work(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'provider-failure-no-shadow.db'}"
+    with managed_connection(database_url) as connection:
+        sessions = SessionRepository(connection)
+        messages = MessageRepository(connection)
+        session = sessions.create("provider failure")
+        scheduler = RecordingMemoryJobScheduler()
+        service = _chat_service(connection,
+            sessions,
+            messages,
+            ContextBuilder(messages, 12),
+            default_prompt_renderer(),
+            FakeProvider(mode="invalid"),
+            replace(Settings(llm_model="test-model"), memory_automation_mode="shadow_auto"),
+            memory_job_scheduler=scheduler,
+        )
+
+        with pytest.raises(ProviderInvalidResponseError):
+            await service.send_message(session.id, "聊天失败不应调度。")
+
+        assert scheduler.calls == []
+
+
+@pytest.mark.asyncio
+async def test_candidate_confirmation_respects_legacy_enabled_flag(tmp_path: Path) -> None:
+    database_url = f"sqlite:///{tmp_path / 'candidate-disabled.db'}"
+    with managed_connection(database_url) as connection:
+        sessions = SessionRepository(connection)
+        messages = MessageRepository(connection)
+        memories = MemoryRepository(connection)
+        session = sessions.create("候选关闭")
+        settings = replace(
+            Settings(llm_model="test-model", memory_candidates_enabled=False),
+            memory_automation_mode="candidate_confirmation",
+        )
+        scheduler = RecordingMemoryJobScheduler()
+        service = _chat_service(connection,
+            sessions,
+            messages,
+            ContextBuilder(messages, 12),
+            default_prompt_renderer(),
+            FakeProvider(),
+            settings,
+            memory_candidates=MemoryCandidateService(memories, settings),
+            memory_job_scheduler=scheduler,
+        )
+
+        await service.send_message(session.id, "我喜欢红茶。")
+
+        assert memories.list(status=MemoryStatus.PENDING) == []
+        assert scheduler.calls == []
 
 
 @pytest.mark.asyncio
@@ -863,7 +1325,7 @@ async def test_chat_service_ignores_memory_candidate_extraction_failure(tmp_path
         messages = MessageRepository(connection)
         session = sessions.create("候选失败")
         provider = FakeProvider()
-        service = ChatService(
+        service = _chat_service(connection,
             sessions,
             messages,
             ContextBuilder(messages, 12),
@@ -891,7 +1353,7 @@ async def test_chat_service_excludes_pending_candidates_from_next_turn_context(t
         session = sessions.create("pending 不进上下文")
         provider = FakeProvider()
         memory_candidates = MemoryCandidateService(memories, Settings(memory_candidates_enabled=True))
-        service = ChatService(
+        service = _chat_service(connection,
             sessions,
             messages,
             ContextBuilder(
@@ -929,7 +1391,7 @@ async def test_chat_service_prunes_old_history_before_provider_when_context_is_l
             messages.add(session.id, ChatRole.ASSISTANT, f"旧回复 {index} " + "乙" * 7000)
         current_text = "当前问题 " + "丙" * 1000
         provider = FakeProvider()
-        service = ChatService(
+        service = _chat_service(connection,
             sessions,
             messages,
             ContextBuilder(messages, 12),
@@ -950,6 +1412,8 @@ async def test_chat_service_prunes_old_history_before_provider_when_context_is_l
 
 
 class MetadataProvider:
+    provider_name = "deepseek"
+
     async def generate(self, messages: list[LLMMessage], options: LLMOptions) -> LLMResponse:
         return LLMResponse(
             text="带指标的回复",
@@ -959,6 +1423,7 @@ class MetadataProvider:
                 "finish_reason": "stop",
                 "completion_id": "chatcmpl-test",
                 "total_tokens": 9,
+                "raw_response": "PROVIDER_RAW_OUTPUT_SENTINEL",
             },
         )
 
@@ -970,7 +1435,7 @@ async def test_chat_service_persists_provider_metadata_without_public_shape_chan
         sessions = SessionRepository(connection)
         messages = MessageRepository(connection)
         session = sessions.create("指标")
-        service = ChatService(
+        service = _chat_service(connection,
             sessions,
             messages,
             ContextBuilder(messages, 12),
@@ -984,13 +1449,21 @@ async def test_chat_service_persists_provider_metadata_without_public_shape_chan
         stored = messages.list(session.id)
         assert reply.provider == "deepseek"
         assert reply.model == "deepseek-v4-flash"
-        assert stored[-1].metadata == {
+        assert {
+            key: value
+            for key, value in stored[-1].metadata.items()
+            if key != "context_manifest"
+        } == {
             "provider": "deepseek",
             "model": "deepseek-v4-flash",
             "finish_reason": "stop",
             "completion_id": "chatcmpl-test",
             "total_tokens": 9,
         }
+        assert "raw_response" not in stored[-1].metadata
+        assert stored[-1].metadata["context_manifest"]["schema_version"] == (
+            "context-manifest-v2"
+        )
 
 
 class FailingMemoryEmbeddingService:
@@ -1025,7 +1498,7 @@ async def test_chat_service_embedding_failure_falls_back_to_relevance(tmp_path: 
             metadata={},
         )
         provider = FakeProvider()
-        service = ChatService(
+        service = _chat_service(connection,
             sessions,
             messages,
             ContextBuilder(

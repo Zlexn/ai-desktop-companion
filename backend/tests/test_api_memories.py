@@ -1,7 +1,130 @@
 from fastapi.testclient import TestClient
 
+from app.core.config import get_settings
 from app.repositories.memory_embeddings import MemoryEmbeddingRepository
 from app.repositories.sqlite import managed_connection
+
+
+def test_gate_c3_memory_openapi_exposes_explicit_classification_contract(
+    client: TestClient,
+) -> None:
+    schemas = client.get("/openapi.json").json()["components"]["schemas"]
+    subject_enum = (
+        "preferred_address",
+        "shared_experience",
+        "non_external_commitment",
+    )
+
+    for schema_name in (
+        "CreateMemoryRequest",
+        "UpdateMemoryRequest",
+        "ConfirmMemoryCandidateRequest",
+        "ReplaceConflictRequest",
+        "MemoryResponse",
+        "MemoryVersionResponse",
+    ):
+        document = str(schemas[schema_name])
+        assert "canonical_subject_code" in document
+        for value in subject_enum:
+            assert value in document
+    assert set(
+        schemas["ConfirmMemoryCandidateRequest"]["properties"]
+    ) == {"canonical_subject_code"}
+
+
+def test_gate_c3_memory_contract_rejects_invalid_classification_pairs(
+    client: TestClient,
+) -> None:
+    response = client.post(
+        "/api/memories",
+        json={
+            "content": "错误分类",
+            "memory_type": "preference",
+            "canonical_subject_code": "shared_experience",
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_gate_c3_manual_classification_lifecycle_is_visible_in_current_api(
+    client: TestClient,
+) -> None:
+    created = client.post(
+        "/api/memories",
+        json={
+            "content": "小雪",
+            "memory_type": "preference",
+            "canonical_subject_code": "preferred_address",
+        },
+    )
+    assert created.status_code == 201
+    memory = created.json()["memory"]
+    assert memory["canonical_subject_code"] == "preferred_address"
+    assert client.get("/api/memories").json()[0]["canonical_subject_code"] == (
+        "preferred_address"
+    )
+
+    preserved = client.patch(
+        f"/api/memories/{memory['id']}",
+        json={"importance": 4},
+    )
+    assert preserved.status_code == 200
+    assert preserved.json()["memory"]["canonical_subject_code"] == (
+        "preferred_address"
+    )
+
+    cleared = client.patch(
+        f"/api/memories/{memory['id']}",
+        json={"content": "普通偏好", "canonical_subject_code": None},
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["memory"]["canonical_subject_code"] is None
+
+    versions = client.get(f"/api/memories/{memory['id']}/versions").json()["items"]
+    assert [version["canonical_subject_code"] for version in versions] == [
+        None,
+        "preferred_address",
+        "preferred_address",
+    ]
+
+
+def test_gate_c3_candidate_confirm_persists_only_explicit_classification(
+    client: TestClient,
+) -> None:
+    settings = get_settings()
+    with managed_connection(settings.database_url) as connection:
+        from app.domain.models import MemoryType
+        from app.repositories.memories import MemoryRepository
+
+        first, _ = MemoryRepository(connection).create_candidate(
+            content="小雪",
+            memory_type=MemoryType.PREFERENCE,
+            source_session_id=None,
+            importance=3,
+            confidence=0.9,
+        )
+        second, _ = MemoryRepository(connection).create_candidate(
+            content="用户喜欢红茶。",
+            memory_type=MemoryType.PREFERENCE,
+            source_session_id=None,
+            importance=3,
+            confidence=0.9,
+        )
+    assert first is not None and second is not None
+
+    classified = client.post(
+        f"/api/memories/{first.id}/confirm",
+        json={"canonical_subject_code": "preferred_address"},
+    )
+    assert classified.status_code == 200
+    assert classified.json()["memory"]["canonical_subject_code"] == (
+        "preferred_address"
+    )
+
+    uncoded = client.post(f"/api/memories/{second.id}/confirm")
+    assert uncoded.status_code == 200
+    assert uncoded.json()["memory"]["canonical_subject_code"] is None
 
 
 def test_create_list_update_and_delete_memory_api(client: TestClient) -> None:
@@ -21,10 +144,18 @@ def test_create_list_update_and_delete_memory_api(client: TestClient) -> None:
     assert memory["content"] == "用户偏好中文回复。"
     assert memory["source"] == "manual"
     assert memory["status"] == "active"
+    assert memory["v2_state"] == "active"
+    assert memory["v2_source_kind"] == "manual"
+    assert memory["version_count"] == 1
+    assert memory["evidence_count"] == 0
+    assert memory["has_open_conflict"] is False
+    assert memory["can_undo_latest_auto"] is False
 
     list_response = client.get("/api/memories")
     assert list_response.status_code == 200
     assert [item["id"] for item in list_response.json()] == [memory["id"]]
+    assert list_response.json()[0]["v2_source_kind"] == "manual"
+    assert list_response.json()[0]["version_count"] == 1
 
     update_response = client.patch(
         f"/api/memories/{memory['id']}",
@@ -35,10 +166,67 @@ def test_create_list_update_and_delete_memory_api(client: TestClient) -> None:
     assert updated["content"] == "用户偏好简洁中文回复。"
     assert updated["importance"] == 4
     assert updated["confidence"] == 0.9
+    assert updated["v2_state"] == "active"
+    assert updated["v2_source_kind"] == "user_edit"
+    assert updated["version_count"] == 2
+    assert updated["evidence_count"] == 0
+    assert updated["has_open_conflict"] is False
+    assert updated["can_undo_latest_auto"] is False
 
     delete_response = client.delete(f"/api/memories/{memory['id']}")
     assert delete_response.status_code == 204
     assert client.get("/api/memories").json() == []
+
+
+def test_delete_conflicted_memory_requires_resolution(client: TestClient) -> None:
+    created = client.post(
+        "/api/memories",
+        json={
+            "content": "用户喜欢雪。",
+            "memory_type": "preference",
+            "importance": 3,
+            "confidence": 1.0,
+        },
+    ).json()["memory"]
+    settings = get_settings()
+    with managed_connection(settings.database_url) as connection:
+        connection.execute(
+            "UPDATE memory_record_states SET state = 'conflicted' WHERE memory_id = ?",
+            (created["id"],),
+        )
+        connection.commit()
+
+    response = client.delete(f"/api/memories/{created['id']}")
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "conflict_requires_resolution"
+
+
+def test_patch_conflicted_memory_requires_resolution(client: TestClient) -> None:
+    created = client.post(
+        "/api/memories",
+        json={
+            "content": "用户喜欢雪。",
+            "memory_type": "preference",
+            "importance": 3,
+            "confidence": 1.0,
+        },
+    ).json()["memory"]
+    settings = get_settings()
+    with managed_connection(settings.database_url) as connection:
+        connection.execute(
+            "UPDATE memory_record_states SET state = 'conflicted' WHERE memory_id = ?",
+            (created["id"],),
+        )
+        connection.commit()
+
+    response = client.patch(
+        f"/api/memories/{created['id']}",
+        json={"content": "用户喜欢冰雪。"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "conflict_requires_resolution"
 
 
 def test_memory_api_rejects_invalid_fields(client: TestClient) -> None:

@@ -98,6 +98,24 @@ class MessageRepository:
         ).fetchall()
         return [_row_to_message(row) for row in rows]
 
+    def list_recent_excluding(
+        self,
+        session_id: str,
+        excluded_id: str,
+        limit: int,
+    ) -> list[Message]:
+        rows = self._connection.execute(
+            """
+            SELECT id, session_id, role, content, metadata_json, created_at
+            FROM messages
+            WHERE session_id = ? AND id <> ?
+            ORDER BY created_at DESC, rowid DESC
+            LIMIT ?
+            """,
+            (session_id, excluded_id, limit),
+        ).fetchall()
+        return list(reversed([_row_to_message(row) for row in rows]))
+
     def list_recent(self, session_id: str, limit: int) -> list[Message]:
         rows = self._connection.execute(
             """

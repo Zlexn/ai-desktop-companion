@@ -15,8 +15,12 @@ from app.core.errors import (
     ProviderUnavailableError,
     sanitize_error_text,
 )
-from app.domain.models import ChatRole
 from app.providers.base import LLMMessage, LLMOptions, LLMResponse
+from app.providers.payload_normalization import (
+    RoleMessagePayloadView,
+    normalize_provider_payload,
+    validate_chat_dispatch_budget,
+)
 
 
 class DeepSeekProvider:
@@ -47,9 +51,13 @@ class DeepSeekProvider:
         await self._client.aclose()
 
     async def generate(self, messages: list[LLMMessage], options: LLMOptions) -> LLMResponse:
+        normalized = normalize_provider_payload(self.provider_name, messages)
+        if not isinstance(normalized, RoleMessagePayloadView):
+            raise RuntimeError("DeepSeek payload normalization mismatch")
+        validate_chat_dispatch_budget(normalized.character_count, options)
         payload = {
             "model": options.model,
-            "messages": self._to_deepseek_messages(messages),
+            "messages": list(normalized.messages),
             "max_tokens": min(options.max_tokens, self._max_tokens),
             "stream": False,
             "thinking": {"type": "disabled"},
@@ -114,14 +122,6 @@ class DeepSeekProvider:
             raise ProviderUnavailableError()
         safe_message = sanitize_error_text(response.text, [self._api_key])
         raise ProviderError(f"模型服务返回错误：{safe_message}")
-
-    def _to_deepseek_messages(self, messages: list[LLMMessage]) -> list[dict[str, str]]:
-        allowed_roles = {ChatRole.SYSTEM, ChatRole.USER, ChatRole.ASSISTANT}
-        return [
-            {"role": message.role.value, "content": message.content}
-            for message in messages
-            if message.role in allowed_roles
-        ]
 
     def _parse_json(self, response: httpx.Response) -> dict[str, Any]:
         try:

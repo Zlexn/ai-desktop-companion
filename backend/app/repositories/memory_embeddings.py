@@ -7,7 +7,8 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from app.domain.models import Memory, MemoryStatus
+from app.domain.models import Memory
+from app.repositories.memory_eligibility import MEMORY_ELIGIBLE_PREDICATE
 from app.repositories.memories import MemoryRepository
 
 
@@ -114,7 +115,43 @@ class MemoryEmbeddingRepository:
                 memory_id, provider, model, dimension, embedding_json,
                 content_hash, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            SELECT ?, ?, ?, ?, ?, ?, ?, ?
+            WHERE EXISTS (
+                SELECT 1
+                FROM memories AS memory
+                LEFT JOIN memory_record_states AS state
+                  ON state.memory_id = memory.id
+                LEFT JOIN memory_versions AS version
+                  ON version.memory_id = state.memory_id
+                 AND version.id = state.current_version_id
+                 AND version.version_number = state.head_version
+                WHERE memory.id = ? AND memory.status = 'active'
+                  AND (
+                        (state.memory_id IS NULL AND NOT EXISTS (
+                            SELECT 1 FROM memory_conflicts AS legacy_conflict
+                            WHERE legacy_conflict.status = 'open'
+                              AND memory.id IN (
+                                  legacy_conflict.left_memory_id,
+                                  legacy_conflict.right_memory_id
+                              )
+                        ))
+                        OR
+                        (
+                            state.state = 'active'
+                            AND version.operation <> 'delete'
+                            AND version.content IS NOT NULL
+                            AND version.redacted_at IS NULL
+                            AND NOT EXISTS (
+                                SELECT 1 FROM memory_conflicts AS current_conflict
+                                WHERE current_conflict.status = 'open'
+                                  AND memory.id IN (
+                                      current_conflict.left_memory_id,
+                                      current_conflict.right_memory_id
+                                  )
+                            )
+                        )
+                  )
+            )
             ON CONFLICT(memory_id) DO UPDATE SET
                 provider = excluded.provider,
                 model = excluded.model,
@@ -132,12 +169,19 @@ class MemoryEmbeddingRepository:
                 content_hash,
                 _to_iso(created_at),
                 _to_iso(now),
+                memory_id,
             ),
         )
         self._connection.commit()
 
+    def delete_in_transaction(self, memory_id: str) -> None:
+        self._connection.execute(
+            "DELETE FROM memory_embeddings WHERE memory_id = ?",
+            (memory_id,),
+        )
+
     def delete(self, memory_id: str) -> None:
-        self._connection.execute("DELETE FROM memory_embeddings WHERE memory_id = ?", (memory_id,))
+        self.delete_in_transaction(memory_id)
         self._connection.commit()
 
     def search_active(
@@ -150,13 +194,20 @@ class MemoryEmbeddingRepository:
         min_score: float,
     ) -> list[ScoredMemory]:
         rows = self._connection.execute(
-            """
+            f"""
             SELECT e.memory_id, e.embedding_json
-            FROM memory_embeddings e
-            JOIN memories m ON m.id = e.memory_id
-            WHERE e.provider = ? AND e.model = ? AND m.status = ?
+            FROM memory_embeddings AS e
+            JOIN memories AS memory ON memory.id = e.memory_id
+            LEFT JOIN memory_record_states AS state
+              ON state.memory_id = memory.id
+            LEFT JOIN memory_versions AS version
+              ON version.memory_id = state.memory_id
+             AND version.id = state.current_version_id
+             AND version.version_number = state.head_version
+            WHERE e.provider = ? AND e.model = ?
+              AND {MEMORY_ELIGIBLE_PREDICATE}
             """,
-            (provider, model, MemoryStatus.ACTIVE.value),
+            (provider, model),
         ).fetchall()
         memories = MemoryRepository(self._connection)
         scored: list[ScoredMemory] = []

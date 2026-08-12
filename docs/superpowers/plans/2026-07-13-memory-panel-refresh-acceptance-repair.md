@@ -1,4 +1,4 @@
-# Stage 3 Memory Panel Refresh Acceptance Repair Implementation Plan
+﻿# Stage 3 Memory Panel Refresh Acceptance Repair Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -517,8 +517,8 @@ On PASS, state that Stage 3 passed after the refresh-persistence repair and that
 - [ ] **Step 5: Run consistency and whitespace scans**
 
 ```powershell
-git -C "C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠" diff --check -- README.md CLAUDE.md docs/stage3-memory-acceptance-audit.md frontend/src/components/MemoryPanel.tsx frontend/src/components/MemoryPanel.test.tsx frontend/playwrightPython.ts frontend/playwrightPython.test.ts frontend/playwright.config.ts frontend/e2e/memories.spec.ts
-git -C "C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠" grep -n -E "当前执行阶段 3 总体验收|NEXT: Memory Panel Refresh Persistence Repair|阶段 3 总体验收.*BLOCKED" -- README.md CLAUDE.md docs/stage3-memory-acceptance-audit.md
+git -C "<project-root>" diff --check -- README.md CLAUDE.md docs/stage3-memory-acceptance-audit.md frontend/src/components/MemoryPanel.tsx frontend/src/components/MemoryPanel.test.tsx frontend/playwrightPython.ts frontend/playwrightPython.test.ts frontend/playwright.config.ts frontend/e2e/memories.spec.ts
+git -C "<project-root>" grep -n -E "当前执行阶段 3 总体验收|NEXT: Memory Panel Refresh Persistence Repair|阶段 3 总体验收.*BLOCKED" -- README.md CLAUDE.md docs/stage3-memory-acceptance-audit.md
 ```
 
 Expected on PASS: `diff --check` exits 0 apart from possible line-ending warnings; no stale current-status BLOCKED claim remains outside the historical audit narrative. Expected on BLOCKED: current documents consistently name the new concrete blocker.
@@ -526,10 +526,10 @@ Expected on PASS: `diff --check` exits 0 apart from possible line-ending warning
 - [ ] **Step 6: Review only task-owned changes and do not commit**
 
 ```powershell
-git -C "C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠" status --short
-git -C "C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠" diff -- frontend/src/components/MemoryPanel.tsx frontend/src/components/MemoryPanel.test.tsx frontend/playwright.config.ts frontend/e2e/memories.spec.ts README.md CLAUDE.md
-git -C "C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠" diff --no-index -- /dev/null frontend/playwrightPython.ts
-git -C "C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠" diff --no-index -- /dev/null frontend/playwrightPython.test.ts
+git -C "<project-root>" status --short
+git -C "<project-root>" diff -- frontend/src/components/MemoryPanel.tsx frontend/src/components/MemoryPanel.test.tsx frontend/playwright.config.ts frontend/e2e/memories.spec.ts README.md CLAUDE.md
+git -C "<project-root>" diff --no-index -- /dev/null frontend/playwrightPython.ts
+git -C "<project-root>" diff --no-index -- /dev/null frontend/playwrightPython.test.ts
 ```
 
 Also review the untracked audit/design/plan files directly. Do not stage or commit: explicit commit authorization was not provided.

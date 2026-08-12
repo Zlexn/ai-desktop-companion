@@ -1,7 +1,7 @@
 import { parseMessageExpressionResponse } from '../expression/events';
 import { streamMessageSpeech, streamSpeech } from './speechStream';
 import { streamTranscription } from './transcriptionStream';
-import type { ApiErrorEnvelope, ChatResponse, CreateMemoryRequest, EmotionAnalysisAudit, EmotionAnalysisConsent, EmotionAnalysisConsentAction, EmotionEvent, EmotionState, MemoryMutationResponse, MemoryRecord, MemoryStatus, Message, MessageExpressionResponse, Session, SpeechSynthesisResponse, SynthesizeSpeechOptions, TranscribeAudioOptions, TranscriptionResult, UpdateMemoryRequest } from './types';
+import type { ApiErrorEnvelope, ChatResponse, CreateMemoryRequest, EmotionAnalysisAudit, EmotionAnalysisConsent, EmotionAnalysisConsentAction, EmotionEvent, EmotionState, MemoryConflictPage, MemoryConflictResolutionRequest, MemoryConflictResolutionResponse, MemoryEvidencePage, MemoryForgetResponse, MemoryJobSummary, MemoryMutationResponse, MemoryRecord, MemoryStatus, MemoryUndoResponse, MemoryVersionPage, MemoryWriteConsent, MemoryWriteConsentAction, Message, MessageExpressionResponse, PersonaActivateRequest, PersonaArtifact, PersonaCapabilities, PersonaCreateRequest, PersonaRedactRequest, PersonaRedactResponse, Session, SpeechSynthesisResponse, SummaryAuditPage, SummaryAuthorityMutationRequest, SummaryCapabilities, SummaryInjectionConsent, SummaryJobMutationRequest, SummaryJobPage, SummaryMutationResponse, SummaryPage, SummaryProcessingConsent, SummaryRebuildRequest, SummaryRedactRequest, SummaryStatus, SynthesizeSpeechOptions, TranscribeAudioOptions, TranscriptionResult, UpdateMemoryRequest } from './types';
 
 async function requestJson<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {
@@ -76,6 +76,141 @@ function mapMimeToFilename(mimeType: string): string {
 }
 
 export const apiClient = {
+  getCurrentPersona(): Promise<PersonaArtifact> {
+    return requestJson<PersonaArtifact>('/api/persona/current');
+  },
+
+  listPersonaArtifacts(): Promise<PersonaArtifact[]> {
+    return requestJson<PersonaArtifact[]>('/api/persona/artifacts');
+  },
+
+  createPersonaArtifact(request: PersonaCreateRequest): Promise<PersonaArtifact> {
+    return requestJson<PersonaArtifact>('/api/persona/artifacts', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  },
+
+  activatePersona(request: PersonaActivateRequest): Promise<PersonaArtifact> {
+    return requestJson<PersonaArtifact>('/api/persona/active', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  },
+
+  redactPersonaArtifact(
+    artifactId: string,
+    request: PersonaRedactRequest,
+  ): Promise<PersonaRedactResponse> {
+    return requestJson<PersonaRedactResponse>(
+      `/api/persona/artifacts/${encodeURIComponent(artifactId)}/redact`,
+      { method: 'POST', body: JSON.stringify(request) },
+    );
+  },
+
+  getPersonaCapabilities(): Promise<PersonaCapabilities> {
+    return requestJson<PersonaCapabilities>('/api/persona/capabilities');
+  },
+
+  getSummaryCapabilities(): Promise<SummaryCapabilities> {
+    return requestJson<SummaryCapabilities>('/api/summaries/capabilities');
+  },
+
+  getSummaryProcessingConsent(): Promise<SummaryProcessingConsent> {
+    return requestJson<SummaryProcessingConsent>('/api/summaries/processing-consent');
+  },
+
+  updateSummaryProcessingConsent(
+    request: SummaryAuthorityMutationRequest,
+  ): Promise<SummaryProcessingConsent> {
+    return requestJson<SummaryProcessingConsent>('/api/summaries/processing-consent', {
+      method: 'PUT',
+      body: JSON.stringify(request),
+    });
+  },
+
+  getSummaryInjectionConsent(): Promise<SummaryInjectionConsent> {
+    return requestJson<SummaryInjectionConsent>('/api/summaries/injection-consent');
+  },
+
+  updateSummaryInjectionConsent(
+    request: SummaryAuthorityMutationRequest,
+  ): Promise<SummaryInjectionConsent> {
+    return requestJson<SummaryInjectionConsent>('/api/summaries/injection-consent', {
+      method: 'PUT',
+      body: JSON.stringify(request),
+    });
+  },
+
+  getSummaryStatus(): Promise<SummaryStatus> {
+    return requestJson<SummaryStatus>('/api/summaries/status');
+  },
+
+  listSummaries(
+    options: { sessionId?: string | null; limit?: number; cursor?: string | null } = {},
+  ): Promise<SummaryPage> {
+    const params = new URLSearchParams({ limit: String(options.limit ?? 20) });
+    if (options.sessionId) params.set('session_id', options.sessionId);
+    if (options.cursor) params.set('cursor', options.cursor);
+    return requestJson<SummaryPage>(`/api/summaries?${params}`);
+  },
+
+  listSummaryJobs(
+    options: { limit?: number; cursor?: string | null } = {},
+  ): Promise<SummaryJobPage> {
+    const params = new URLSearchParams({ limit: String(options.limit ?? 20) });
+    if (options.cursor) params.set('cursor', options.cursor);
+    return requestJson<SummaryJobPage>(`/api/summaries/jobs?${params}`);
+  },
+
+  listSummaryAudits(
+    options: { limit?: number; cursor?: string | null } = {},
+  ): Promise<SummaryAuditPage> {
+    const params = new URLSearchParams({ limit: String(options.limit ?? 20) });
+    if (options.cursor) params.set('cursor', options.cursor);
+    return requestJson<SummaryAuditPage>(`/api/summaries/audits?${params}`);
+  },
+
+  redactSummary(
+    summaryId: string,
+    request: SummaryRedactRequest,
+  ): Promise<SummaryMutationResponse> {
+    return requestJson<SummaryMutationResponse>(
+      `/api/summaries/${encodeURIComponent(summaryId)}/redact`,
+      { method: 'POST', body: JSON.stringify(request) },
+    );
+  },
+
+  rebuildSummary(
+    summaryId: string,
+    request: SummaryRebuildRequest,
+  ): Promise<SummaryMutationResponse> {
+    return requestJson<SummaryMutationResponse>(
+      `/api/summaries/${encodeURIComponent(summaryId)}/rebuild`,
+      { method: 'POST', body: JSON.stringify(request) },
+    );
+  },
+
+  retrySummaryJob(
+    jobId: string,
+    request: SummaryJobMutationRequest,
+  ): Promise<SummaryMutationResponse> {
+    return requestJson<SummaryMutationResponse>(
+      `/api/summaries/jobs/${encodeURIComponent(jobId)}/retry`,
+      { method: 'POST', body: JSON.stringify(request) },
+    );
+  },
+
+  cancelSummaryJob(
+    jobId: string,
+    request: SummaryJobMutationRequest,
+  ): Promise<SummaryMutationResponse> {
+    return requestJson<SummaryMutationResponse>(
+      `/api/summaries/jobs/${encodeURIComponent(jobId)}/cancel`,
+      { method: 'POST', body: JSON.stringify(request) },
+    );
+  },
+
   listSessions(): Promise<Session[]> {
     return requestJson<Session[]>('/api/sessions');
   },
@@ -141,6 +276,64 @@ export const apiClient = {
 
   deleteMemory(memoryId: string): Promise<void> {
     return requestJson<void>(`/api/memories/${memoryId}`, { method: 'DELETE' });
+  },
+
+  archiveMemory(memoryId: string): Promise<void> {
+    return requestJson<void>(`/api/memories/${encodeURIComponent(memoryId)}/archive`, { method: 'POST' });
+  },
+
+  forgetMemory(memoryId: string): Promise<MemoryForgetResponse> {
+    return requestJson<MemoryForgetResponse>(`/api/memories/${encodeURIComponent(memoryId)}/forget`, { method: 'POST' });
+  },
+
+  undoLatestAutoMemory(memoryId: string): Promise<MemoryUndoResponse> {
+    return requestJson<MemoryUndoResponse>(`/api/memories/${encodeURIComponent(memoryId)}/undo-latest-auto`, { method: 'POST' });
+  },
+
+  getMemoryWriteConsent(): Promise<MemoryWriteConsent> {
+    return requestJson<MemoryWriteConsent>('/api/memories/automation/write-consent');
+  },
+
+  updateMemoryWriteConsent(action: MemoryWriteConsentAction): Promise<MemoryWriteConsent> {
+    return requestJson<MemoryWriteConsent>('/api/memories/automation/write-consent', {
+      method: 'PUT',
+      body: JSON.stringify({
+        action,
+        policy_version: 'memory-auto-write-policy-v1',
+        retention_disclosure_version: 'memory-auto-write-retention-v1',
+        allowed_memory_types_version: 'memory-auto-write-types-v1',
+        allowed_memory_types: ['user_fact', 'preference', 'long_term_goal', 'important_event', 'relationship_event', 'other'],
+      }),
+    });
+  },
+
+  listMemoryVersions(memoryId: string, cursor?: string | null, limit = 20): Promise<MemoryVersionPage> {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (cursor) params.set('cursor', cursor);
+    return requestJson<MemoryVersionPage>(`/api/memories/${encodeURIComponent(memoryId)}/versions?${params}`);
+  },
+
+  listMemoryEvidence(memoryId: string, cursor?: string | null, limit = 20): Promise<MemoryEvidencePage> {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (cursor) params.set('cursor', cursor);
+    return requestJson<MemoryEvidencePage>(`/api/memories/${encodeURIComponent(memoryId)}/evidence?${params}`);
+  },
+
+  listMemoryConflicts(cursor?: string | null, limit = 20): Promise<MemoryConflictPage> {
+    const params = new URLSearchParams({ status: 'open', limit: String(limit) });
+    if (cursor) params.set('cursor', cursor);
+    return requestJson<MemoryConflictPage>(`/api/memories/conflicts?${params}`);
+  },
+
+  resolveMemoryConflict(conflictId: string, request: MemoryConflictResolutionRequest): Promise<MemoryConflictResolutionResponse> {
+    return requestJson<MemoryConflictResolutionResponse>(`/api/memories/conflicts/${encodeURIComponent(conflictId)}/resolve`, {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  },
+
+  listMemoryJobs(limit = 20): Promise<MemoryJobSummary[]> {
+    return requestJson<MemoryJobSummary[]>(`/api/memories/jobs?limit=${limit}`);
   },
 
   getEmotionState(): Promise<EmotionState> {

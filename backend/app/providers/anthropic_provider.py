@@ -7,8 +7,12 @@ from app.core.errors import (
     ProviderTimeoutError,
     sanitize_error_text,
 )
-from app.domain.models import ChatRole
 from app.providers.base import LLMMessage, LLMOptions, LLMResponse
+from app.providers.payload_normalization import (
+    AnthropicPayloadView,
+    normalize_provider_payload,
+    validate_chat_dispatch_budget,
+)
 
 
 class AnthropicProvider:
@@ -22,13 +26,11 @@ class AnthropicProvider:
         await self._client.close()
 
     async def generate(self, messages: list[LLMMessage], options: LLMOptions) -> LLMResponse:
-        system_messages = [message.content for message in messages if message.role == ChatRole.SYSTEM]
-        conversation = [
-            {"role": message.role.value, "content": message.content}
-            for message in messages
-            if message.role in {ChatRole.USER, ChatRole.ASSISTANT}
-        ]
-        if not conversation:
+        payload = normalize_provider_payload(self.provider_name, messages)
+        if not isinstance(payload, AnthropicPayloadView):
+            raise RuntimeError("Anthropic payload normalization mismatch")
+        validate_chat_dispatch_budget(payload.character_count, options)
+        if not payload.conversation:
             raise ProviderInvalidResponseError()
 
         try:
@@ -38,8 +40,8 @@ class AnthropicProvider:
             ).messages.create(
                 model=options.model,
                 max_tokens=options.max_tokens,
-                system="\n\n".join(system_messages) if system_messages else anthropic.NOT_GIVEN,
-                messages=conversation,
+                system=payload.system if payload.system else anthropic.NOT_GIVEN,
+                messages=list(payload.conversation),
             )
         except anthropic.APITimeoutError as exc:
             raise ProviderTimeoutError() from exc

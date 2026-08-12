@@ -1,4 +1,4 @@
-# Stage 2G-2 Real FasterWhisper Streaming ASR Feasibility Implementation Plan
+﻿# Stage 2G-2 Real FasterWhisper Streaming ASR Feasibility Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -993,7 +993,7 @@ $env:DATABASE_URL='sqlite:///./data/stage2g2-smoke.db'
 $env:LLM_PROVIDER='fake'
 $env:TTS_PROVIDER='fake'
 $env:ASR_PROVIDER='faster-whisper'
-$env:ASR_FASTER_WHISPER_MODEL_PATH='C:\Users\张乐航\.cache\huggingface\hub\models--Systran--faster-whisper-medium\snapshots\08e178d48790749d25932bbc082711ddcfdfbc4f'
+$env:ASR_FASTER_WHISPER_MODEL_PATH='%USERPROFILE%\.cache\huggingface\hub\models--Systran--faster-whisper-medium\snapshots\08e178d48790749d25932bbc082711ddcfdfbc4f'
 $env:ASR_FASTER_WHISPER_MODEL_NAME='medium'
 $env:ASR_FASTER_WHISPER_MODEL_REVISION='08e178d48790749d25932bbc082711ddcfdfbc4f'
 $env:ASR_FASTER_WHISPER_DEVICE='cuda'

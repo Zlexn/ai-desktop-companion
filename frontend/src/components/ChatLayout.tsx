@@ -1,4 +1,38 @@
-import type { CreateMemoryRequest, EmotionAnalysisAudit, EmotionAnalysisConsent, EmotionAnalysisConsentAction, EmotionEvent, EmotionState, MemoryRecord, Message, Session, UpdateMemoryRequest } from '../api/types';
+import type {
+  CreateMemoryRequest,
+  EmotionAnalysisAudit,
+  EmotionAnalysisConsent,
+  EmotionAnalysisConsentAction,
+  EmotionEvent,
+  EmotionState,
+  MemoryConflict,
+  MemoryConflictResolutionRequest,
+  MemoryEvidencePage,
+  MemoryJobSummary,
+  MemoryRecord,
+  MemoryVersionPage,
+  MemoryWriteConsent,
+  MemoryWriteConsentAction,
+  Message,
+  PersonaActivateRequest,
+  PersonaArtifact,
+  PersonaCapabilities,
+  PersonaCreateRequest,
+  PersonaRedactRequest,
+  Session,
+  SummaryAudit,
+  SummaryAuthorityMutationRequest,
+  SummaryCapabilities,
+  SummaryInjectionConsent,
+  SummaryItem,
+  SummaryJob,
+  SummaryJobMutationRequest,
+  SummaryProcessingConsent,
+  SummaryRebuildRequest,
+  SummaryRedactRequest,
+  SummaryStatus,
+  UpdateMemoryRequest,
+} from '../api/types';
 import type { ExpressionPreviewState } from '../expression/previewReducer';
 import type { UseAudioInputDevicesResult } from '../hooks/useAudioInputDevices';
 import type { UseAudioOutputDevicesResult } from '../hooks/useAudioOutputDevices';
@@ -6,12 +40,14 @@ import type { useAudioPlaybackController } from '../hooks/useAudioPlaybackContro
 import type { UseManualAudioRecorderResult } from '../hooks/useManualAudioRecorder';
 import { ErrorBanner } from './ErrorBanner';
 import { ExpressionPreview } from './ExpressionPreview';
+import { PersonaPanel } from './PersonaPanel';
 import { PresentationErrorBoundary } from './PresentationErrorBoundary';
 import { EmotionPanel } from './EmotionPanel';
 import { MemoryPanel } from './MemoryPanel';
 import { MessageInput } from './MessageInput';
 import { MessageList } from './MessageList';
 import { SessionList } from './SessionList';
+import { SummaryPanel } from './SummaryPanel';
 import { VoiceRecorder } from './VoiceRecorder';
 
 interface ChatLayoutProps {
@@ -43,6 +79,34 @@ interface ChatLayoutProps {
   memoryLoading: boolean;
   memoryError: string | null;
   memoryConflicts: MemoryRecord[];
+  gateBMemoryConflicts: MemoryConflict[];
+  memoryWriteConsent: MemoryWriteConsent | null;
+  latestMemoryJob: MemoryJobSummary | null;
+  personaCurrent: PersonaArtifact | null;
+  personaArtifacts: PersonaArtifact[];
+  personaCapabilities: PersonaCapabilities | null;
+  personaLoading: boolean;
+  personaError: string | null;
+  onRetryPersona: () => Promise<void>;
+  onCreatePersona: (request: PersonaCreateRequest) => Promise<void>;
+  onActivatePersona: (request: PersonaActivateRequest) => Promise<void>;
+  onRedactPersona: (artifactId: string, request: PersonaRedactRequest) => Promise<void>;
+  summaryCapabilities: SummaryCapabilities | null;
+  summaryProcessingConsent: SummaryProcessingConsent | null;
+  summaryInjectionConsent: SummaryInjectionConsent | null;
+  summaryStatus: SummaryStatus | null;
+  summaries: SummaryItem[];
+  summaryJobs: SummaryJob[];
+  summaryAudits: SummaryAudit[];
+  summaryLoading: boolean;
+  summaryError: string | null;
+  onRetrySummaries: () => Promise<void>;
+  onUpdateSummaryProcessing: (request: SummaryAuthorityMutationRequest) => Promise<void>;
+  onUpdateSummaryInjection: (request: SummaryAuthorityMutationRequest) => Promise<void>;
+  onRedactSummary: (summaryId: string, request: SummaryRedactRequest) => Promise<void>;
+  onRebuildSummary: (summaryId: string, request: SummaryRebuildRequest) => Promise<void>;
+  onRetrySummaryJob: (jobId: string, request: SummaryJobMutationRequest) => Promise<void>;
+  onCancelSummaryJob: (jobId: string, request: SummaryJobMutationRequest) => Promise<void>;
   emotionState: EmotionState | null;
   emotionEvents: EmotionEvent[];
   emotionLoading: boolean;
@@ -59,6 +123,13 @@ interface ChatLayoutProps {
   onCreateMemory: (request: CreateMemoryRequest) => Promise<void>;
   onUpdateMemory: (memoryId: string, request: UpdateMemoryRequest) => Promise<void>;
   onDeleteMemory: (memoryId: string) => Promise<void>;
+  onArchiveMemory: (memoryId: string) => Promise<void>;
+  onForgetMemory: (memoryId: string) => Promise<void>;
+  onUndoLatestAutoMemory: (memoryId: string) => Promise<void>;
+  onUpdateMemoryWriteConsent: (action: MemoryWriteConsentAction) => Promise<void>;
+  onResolveMemoryConflict: (conflictId: string, request: MemoryConflictResolutionRequest) => Promise<void>;
+  loadMemoryVersions: (memoryId: string, cursor?: string | null) => Promise<MemoryVersionPage>;
+  loadMemoryEvidence: (memoryId: string, cursor?: string | null) => Promise<MemoryEvidencePage>;
   onConfirmMemoryCandidate: (memoryId: string) => Promise<void>;
   onDismissMemoryCandidate: (memoryId: string) => Promise<void>;
   onDismissError: () => void;
@@ -94,6 +165,34 @@ export function ChatLayout({
   memoryLoading,
   memoryError,
   memoryConflicts,
+  gateBMemoryConflicts,
+  memoryWriteConsent,
+  latestMemoryJob,
+  personaCurrent,
+  personaArtifacts,
+  personaCapabilities,
+  personaLoading,
+  personaError,
+  onRetryPersona,
+  onCreatePersona,
+  onActivatePersona,
+  onRedactPersona,
+  summaryCapabilities,
+  summaryProcessingConsent,
+  summaryInjectionConsent,
+  summaryStatus,
+  summaries,
+  summaryJobs,
+  summaryAudits,
+  summaryLoading,
+  summaryError,
+  onRetrySummaries,
+  onUpdateSummaryProcessing,
+  onUpdateSummaryInjection,
+  onRedactSummary,
+  onRebuildSummary,
+  onRetrySummaryJob,
+  onCancelSummaryJob,
   emotionState,
   emotionEvents,
   emotionLoading,
@@ -110,6 +209,13 @@ export function ChatLayout({
   onCreateMemory,
   onUpdateMemory,
   onDeleteMemory,
+  onArchiveMemory,
+  onForgetMemory,
+  onUndoLatestAutoMemory,
+  onUpdateMemoryWriteConsent,
+  onResolveMemoryConflict,
+  loadMemoryVersions,
+  loadMemoryEvidence,
   onConfirmMemoryCandidate,
   onDismissMemoryCandidate,
   onDismissError,
@@ -138,6 +244,35 @@ export function ChatLayout({
             displayLabel={expressionPreviewLabel}
           />
         </PresentationErrorBoundary>
+        <PersonaPanel
+          current={personaCurrent}
+          artifacts={personaArtifacts}
+          capabilities={personaCapabilities}
+          loading={personaLoading}
+          error={personaError}
+          onRetry={onRetryPersona}
+          onCreate={onCreatePersona}
+          onActivate={onActivatePersona}
+          onRedact={onRedactPersona}
+        />
+        <SummaryPanel
+          capabilities={summaryCapabilities}
+          processingConsent={summaryProcessingConsent}
+          injectionConsent={summaryInjectionConsent}
+          status={summaryStatus}
+          summaries={summaries}
+          jobs={summaryJobs}
+          audits={summaryAudits}
+          loading={summaryLoading}
+          error={summaryError}
+          onRetryLoad={onRetrySummaries}
+          onUpdateProcessing={onUpdateSummaryProcessing}
+          onUpdateInjection={onUpdateSummaryInjection}
+          onRedact={onRedactSummary}
+          onRebuild={onRebuildSummary}
+          onRetryJob={onRetrySummaryJob}
+          onCancelJob={onCancelSummaryJob}
+        />
         <EmotionPanel
           state={emotionState}
           events={emotionEvents}
@@ -159,9 +294,19 @@ export function ChatLayout({
           loading={memoryLoading}
           error={memoryError}
           conflicts={memoryConflicts}
+          gateBConflicts={gateBMemoryConflicts}
+          writeConsent={memoryWriteConsent}
+          latestJob={latestMemoryJob}
           onCreate={onCreateMemory}
           onUpdate={onUpdateMemory}
           onDelete={onDeleteMemory}
+          onArchive={onArchiveMemory}
+          onForget={onForgetMemory}
+          onUndoLatestAuto={onUndoLatestAutoMemory}
+          onUpdateWriteConsent={onUpdateMemoryWriteConsent}
+          onResolveConflict={onResolveMemoryConflict}
+          loadVersions={loadMemoryVersions}
+          loadEvidence={loadMemoryEvidence}
           onConfirmCandidate={onConfirmMemoryCandidate}
           onDismissCandidate={onDismissMemoryCandidate}
         />

@@ -3,6 +3,8 @@ from typing import Any
 
 import yaml
 
+from app.services.persona_compiler import legacy_yaml_to_persona_v1
+
 
 class PromptRenderer:
     def __init__(self, character_path: Path, template_path: Path) -> None:
@@ -10,8 +12,8 @@ class PromptRenderer:
         self._template_path = template_path
 
     def render(self) -> str:
-        config = self._load_character_config()
-        template = self._template_path.read_text(encoding="utf-8")
+        config = self.load_source_config()
+        template = self.load_template_text()
         identity = config["identity"]
         personality = config["personality"]
         language_style = config["language_style"]
@@ -30,7 +32,7 @@ class PromptRenderer:
             prohibitions="\n".join(f"- {item}" for item in config["prohibitions"]),
         )
 
-    def _load_character_config(self) -> dict[str, Any]:
+    def load_source_config(self) -> dict[str, Any]:
         raw = yaml.safe_load(self._character_path.read_text(encoding="utf-8"))
         if not isinstance(raw, dict):
             raise ValueError("Character config must be a mapping")
@@ -39,6 +41,12 @@ class PromptRenderer:
         if missing:
             raise ValueError(f"Character config missing keys: {', '.join(missing)}")
         return raw
+
+    def load_template_text(self) -> str:
+        return self._template_path.read_text(encoding="utf-8")
+
+    def load_persona_v1_config(self) -> dict[str, object]:
+        return legacy_yaml_to_persona_v1(self.load_source_config())
 
 
 def default_prompt_renderer() -> PromptRenderer:

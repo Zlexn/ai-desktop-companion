@@ -7,8 +7,11 @@ from app.asr.base import ASRProvider
 from app.asr.factory import create_asr_provider
 from app.core.config import Settings, get_settings
 from app.providers.base import LLMProvider
-from app.providers.factory import create_named_provider, create_provider
+from app.repositories.chat_turns import ChatTurnRepository
+from app.repositories.context_sources import ContextSourceRepository
 from app.repositories.emotion_analysis import EmotionAnalysisRepository
+from app.repositories.memory_automation import MemoryAutomationRepository
+from app.repositories.personas import PersonaRepository
 from app.repositories.memory_audit import MemoryAuditRepository
 from app.repositories.emotions import EmotionRepository
 from app.repositories.expression_plans import ExpressionPlanRepository
@@ -17,8 +20,13 @@ from app.repositories.memory_embeddings import MemoryEmbeddingRepository
 from app.repositories.messages import MessageRepository
 from app.repositories.sessions import SessionRepository
 from app.repositories.sqlite import managed_connection, resolve_sqlite_path
+from app.repositories.summary_automation import SummaryAutomationRepository
+from app.repositories.summary_public import SummaryPublicRepository
+from app.repositories.summary_selection import SummarySelectionRepository
+from app.repositories.versioned_memories import VersionedMemoryRepository
 from app.services.chat_service import ChatService
-from app.services.context_builder import ContextBuilder
+from app.services.context_composer import ContextComposer
+from app.services.context_data_encoder import ContextDataEncoder
 from app.services.emotion_analysis_dispatch import EmotionAnalysisDispatchFence
 from app.services.emotion_analysis_scheduler import EmotionAnalysisScheduler
 from app.services.emotion_policy import EmotionPolicy
@@ -26,6 +34,10 @@ from app.services.emotion_context import EmotionContextFormatter
 from app.services.emotion_service import CompletedTurnEmotionUpdater, EmotionService
 from app.services.expression_plan_policy import ExpressionPlanPolicy
 from app.services.expression_plan_service import ExpressionPlanService
+from app.services.memory_extraction_dispatch import MemoryExtractionDispatchFence
+from app.services.memory_job_scheduler import MemoryJobScheduler
+from app.services.memory_source_reference import MemorySourceReferenceService
+from app.services.memory_write_dispatch import MemoryWriteDispatchFence
 from app.services.memory_candidate_service import MemoryCandidateService
 from app.services.message_bound_tts_service import MessageBoundTTSService
 from app.services.memory_embedding_service import (
@@ -34,15 +46,32 @@ from app.services.memory_embedding_service import (
     MemoryEmbeddingService,
     SentenceTransformersMemoryEmbeddingProvider,
 )
+from app.services.memory_forget_service import MemoryForgetService
+from app.services.memory_conflict_resolution import MemoryConflictResolutionService
+from app.services.session_deletion_coordinator import (
+    SessionDeletionCoordinator,
+    SessionDeletionFence,
+)
 from app.services.prompt_renderer import PromptRenderer, default_prompt_renderer
+from app.services.persona_service import PersonaService
 from app.services.session_summary_provider import (
     FakeSessionSummaryProvider,
-    LLMSessionSummaryProvider,
     SessionSummaryProvider,
 )
 from app.services.session_summary_scheduler import SessionSummaryScheduler
 from app.services.asr_service import ASRService
+from app.services.session_summary_service import (
+    build_summary_injection_policy,
+    build_summary_processing_policy,
+)
+from app.services.summary_invalidation import SummaryInvalidationService
+from app.services.summary_rebuild import SummaryRebuildService
+from app.services.summary_dispatch import (
+    SummaryDisclosureFence,
+    SummaryProcessingFence,
+)
 from app.services.tts_service import TTSService
+from app.services.versioned_memory_mutation import VersionedMemoryMutationService
 from app.tts.base import TTSProvider
 from app.tts.expression_mapper import TTSExpressionMapper
 from app.tts.factory import create_tts_provider
@@ -79,8 +108,28 @@ def get_message_repository(connection: sqlite3.Connection = Depends(get_connecti
     return MessageRepository(connection)
 
 
-def get_memory_repository(connection: sqlite3.Connection = Depends(get_connection)) -> MemoryRepository:
-    return MemoryRepository(connection)
+def get_chat_turn_repository(
+    connection: sqlite3.Connection = Depends(get_connection),
+) -> ChatTurnRepository:
+    return ChatTurnRepository(connection)
+
+
+def get_memory_source_reference_service(
+    request: Request,
+) -> MemorySourceReferenceService:
+    return request.app.state.memory_source_reference_service
+
+
+def get_memory_repository(
+    connection: sqlite3.Connection = Depends(get_connection),
+    source_references: MemorySourceReferenceService = Depends(
+        get_memory_source_reference_service
+    ),
+) -> MemoryRepository:
+    return MemoryRepository(
+        connection,
+        source_references=source_references,
+    )
 
 
 def get_memory_embedding_repository(connection: sqlite3.Connection = Depends(get_connection)) -> MemoryEmbeddingRepository:
@@ -124,24 +173,15 @@ def get_completed_turn_emotion_updater(
     return LocalCompletedTurnEmotionUpdater(settings.database_url)
 
 
-def get_llm_provider(settings: Settings = Depends(get_settings)) -> LLMProvider:
-    return create_provider(settings)
+def get_llm_provider(request: Request) -> LLMProvider:
+    return request.app.state.llm_provider
 
 
 def build_session_summary_provider(settings: Settings) -> SessionSummaryProvider:
     if settings.session_summary_provider == "fake":
         return FakeSessionSummaryProvider()
-
-    llm_provider = create_named_provider(
-        settings,
-        settings.session_summary_llm_provider,
-        deepseek_max_tokens=settings.session_summary_llm_max_tokens,
-        deepseek_timeout_seconds=settings.session_summary_llm_timeout_seconds,
-        deepseek_max_retries=settings.session_summary_llm_max_retries,
-    )
-    return LLMSessionSummaryProvider(
-        llm_provider=llm_provider,
-        model=settings.session_summary_llm_model,
+    raise ValueError(
+        "remote summary Providers are constructed only by the fenced Task 7 worker"
     )
 
 
@@ -161,6 +201,160 @@ def get_emotion_analysis_scheduler(request: Request) -> EmotionAnalysisScheduler
 
 def get_emotion_analysis_dispatch_fence(request: Request) -> EmotionAnalysisDispatchFence:
     return request.app.state.emotion_analysis_dispatch_fence
+
+
+def get_versioned_memory_repository(
+    connection: sqlite3.Connection = Depends(get_connection),
+) -> VersionedMemoryRepository:
+    return VersionedMemoryRepository(connection)
+
+
+def get_memory_automation_repository(
+    connection: sqlite3.Connection = Depends(get_connection),
+) -> MemoryAutomationRepository:
+    return MemoryAutomationRepository(connection)
+
+
+def get_memory_extraction_dispatch_fence(
+    request: Request,
+) -> MemoryExtractionDispatchFence:
+    return request.app.state.memory_extraction_dispatch_fence
+
+
+def get_memory_write_dispatch_fence(
+    request: Request,
+) -> MemoryWriteDispatchFence:
+    return request.app.state.memory_write_dispatch_fence
+
+
+def get_memory_job_scheduler(request: Request) -> MemoryJobScheduler:
+    return request.app.state.memory_job_scheduler
+
+
+def get_versioned_memory_mutation_service(
+    connection: sqlite3.Connection = Depends(get_connection),
+    source_references: MemorySourceReferenceService = Depends(
+        get_memory_source_reference_service
+    ),
+) -> VersionedMemoryMutationService:
+    return VersionedMemoryMutationService(
+        connection,
+        memories=MemoryRepository(
+            connection,
+            source_references=source_references,
+        ),
+        versioned=VersionedMemoryRepository(connection),
+        source_references=source_references,
+    )
+
+
+def get_session_deletion_fence(request: Request) -> SessionDeletionFence:
+    return request.app.state.session_deletion_fence
+
+
+def get_session_deletion_coordinator(
+    connection: sqlite3.Connection = Depends(get_connection),
+    source_references: MemorySourceReferenceService = Depends(
+        get_memory_source_reference_service
+    ),
+    deletion_fence: SessionDeletionFence = Depends(get_session_deletion_fence),
+) -> SessionDeletionCoordinator:
+    return SessionDeletionCoordinator(
+        connection,
+        versioned=VersionedMemoryRepository(connection),
+        source_references=source_references,
+        deletion_fence=deletion_fence,
+    )
+
+
+def get_summary_processing_fence(request: Request) -> SummaryProcessingFence:
+    return request.app.state.summary_processing_fence
+
+
+def get_summary_disclosure_fence(request: Request) -> SummaryDisclosureFence:
+    return request.app.state.summary_disclosure_fence
+
+
+def get_summary_automation_repository(
+    connection: sqlite3.Connection = Depends(get_connection),
+) -> SummaryAutomationRepository:
+    return SummaryAutomationRepository(connection)
+
+
+def get_summary_public_repository(
+    connection: sqlite3.Connection = Depends(get_connection),
+) -> SummaryPublicRepository:
+    return SummaryPublicRepository(connection)
+
+
+def get_summary_invalidation_service(
+    settings: Settings = Depends(get_settings),
+) -> SummaryInvalidationService:
+    return SummaryInvalidationService(settings.database_url)
+
+
+def get_summary_rebuild_service(
+    request: Request,
+    settings: Settings = Depends(get_settings),
+) -> SummaryRebuildService:
+    return SummaryRebuildService(
+        settings.database_url,
+        settings=settings,
+        session_deletion_generation=(
+            request.app.state.summary_session_deletion_generation
+        ),
+    )
+
+
+def get_summary_processing_policy(
+    settings: Settings = Depends(get_settings),
+):
+    return build_summary_processing_policy(settings)
+
+
+def get_summary_injection_policy(
+    settings: Settings = Depends(get_settings),
+):
+    return build_summary_injection_policy(settings)
+
+
+def get_memory_conflict_resolution_service(
+    connection: sqlite3.Connection = Depends(get_connection),
+    source_references: MemorySourceReferenceService = Depends(
+        get_memory_source_reference_service
+    ),
+) -> MemoryConflictResolutionService:
+    versioned = VersionedMemoryRepository(connection)
+    memories = MemoryRepository(
+        connection,
+        source_references=source_references,
+    )
+    forget = MemoryForgetService(
+        connection,
+        versioned=versioned,
+        source_references=source_references,
+    )
+    return MemoryConflictResolutionService(
+        connection,
+        versioned=versioned,
+        memories=memories,
+        forget=forget,
+        source_references=source_references,
+    )
+
+
+def get_memory_forget_service(
+    connection: sqlite3.Connection = Depends(get_connection),
+    source_references: MemorySourceReferenceService = Depends(
+        get_memory_source_reference_service
+    ),
+) -> MemoryForgetService:
+    versioned = VersionedMemoryRepository(connection)
+    return MemoryForgetService(
+        connection,
+        versioned=versioned,
+        source_references=source_references,
+    )
 
 
 def get_memory_candidate_service(
@@ -192,6 +386,17 @@ def get_memory_embedding_service(
 
 def get_prompt_renderer() -> PromptRenderer:
     return default_prompt_renderer()
+
+
+def get_persona_service(
+    request: Request,
+    connection: sqlite3.Connection = Depends(get_connection),
+) -> PersonaService:
+    return PersonaService(
+        PersonaRepository(connection),
+        compiler=request.app.state.persona_compiler,
+        bootstrap_config={},
+    )
 
 
 def get_tts_provider(settings: Settings = Depends(get_settings)) -> TTSProvider:
@@ -246,43 +451,76 @@ def get_asr_service(
 
 
 def get_chat_service(
+    request: Request,
     settings: Settings = Depends(get_settings),
+    connection: sqlite3.Connection = Depends(get_connection),
     sessions: SessionRepository = Depends(get_session_repository),
     messages: MessageRepository = Depends(get_message_repository),
+    chat_turns: ChatTurnRepository = Depends(get_chat_turn_repository),
     memories: MemoryRepository = Depends(get_memory_repository),
-    prompt_renderer: PromptRenderer = Depends(get_prompt_renderer),
+    persona_service: PersonaService = Depends(get_persona_service),
     provider: LLMProvider = Depends(get_llm_provider),
     memory_candidates: MemoryCandidateService = Depends(get_memory_candidate_service),
+    memory_job_scheduler: MemoryJobScheduler = Depends(get_memory_job_scheduler),
     memory_embeddings: MemoryEmbeddingService | None = Depends(get_memory_embedding_service),
     summary_scheduler: SessionSummaryScheduler = Depends(get_session_summary_scheduler),
+    summary_disclosure_fence: SummaryDisclosureFence = Depends(
+        get_summary_disclosure_fence
+    ),
     emotion_service: EmotionService = Depends(get_emotion_service),
     emotion_updater: CompletedTurnEmotionUpdater = Depends(get_completed_turn_emotion_updater),
     emotion_analysis_scheduler: EmotionAnalysisScheduler = Depends(get_emotion_analysis_scheduler),
     expression_plans: ExpressionPlanService = Depends(get_expression_plan_service),
 ) -> ChatService:
-    context_builder = ContextBuilder(
-        messages,
-        settings.recent_context_messages,
-        memories=memories,
-        memory_context_enabled=settings.memory_context_enabled,
-        memory_context_limit=settings.memory_context_limit,
-        memory_retrieval_mode=settings.memory_retrieval_mode,
-        memory_retrieval_fallback_limit=settings.memory_retrieval_fallback_limit,
-        memory_embedding_service=memory_embeddings,
-        memory_embedding_min_score=settings.memory_embedding_min_score,
-        emotion_context_formatter=EmotionContextFormatter(),
+    summary_policy = build_summary_injection_policy(settings)
+    summary_available = bool(
+        getattr(request.app.state, "summary_injection_available", False)
+    )
+    summary_authority = (
+        SummaryAutomationRepository(connection).valid_injection_snapshot(
+            summary_policy
+        )
+        if summary_available
+        else None
+    )
+    summary_selection = (
+        SummarySelectionRepository(
+            connection,
+            min_lexical_relevance=(
+                settings.summary_injection_min_lexical_relevance
+            ),
+            session_deletion_generation=(
+                request.app.state.summary_session_deletion_generation
+            ),
+        )
+        if summary_authority is not None
+        else None
     )
     return ChatService(
         sessions,
         messages,
-        context_builder,
-        prompt_renderer,
+        chat_turns,
+        persona_service,
+        ContextSourceRepository(
+            messages,
+            memories if settings.memory_context_enabled else None,
+            memory_retrieval_mode=settings.memory_retrieval_mode,
+            memory_embedding_service=memory_embeddings,
+            memory_embedding_min_score=settings.memory_embedding_min_score,
+            sessions=sessions,
+            summary_selection=summary_selection,
+            summary_authority=summary_authority,
+        ),
+        ContextComposer(settings, ContextDataEncoder()),
         provider,
         settings,
         memory_candidates=memory_candidates,
+        memory_job_scheduler=memory_job_scheduler,
         summary_scheduler=summary_scheduler,
         emotion_updater=emotion_updater,
         emotion_analysis_scheduler=emotion_analysis_scheduler,
         emotion_snapshot_reader=emotion_service,
+        emotion_context_formatter=EmotionContextFormatter(),
         expression_plans=expression_plans,
+        summary_disclosure_fence=summary_disclosure_fence,
     )

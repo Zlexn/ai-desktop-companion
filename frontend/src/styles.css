@@ -9,7 +9,9 @@ body {
 }
 
 button,
-textarea {
+textarea,
+input,
+select {
   font: inherit;
 }
 
@@ -342,6 +344,254 @@ button:disabled {
 
 .empty-state {
   color: #7b6a5d;
+}
+
+.persona-panel {
+  background: #f8f4ff;
+  border: 1px solid #c8bed7;
+  border-radius: 16px;
+  margin-top: 1rem;
+  padding: 1rem;
+}
+
+.persona-panel details,
+.persona-panel fieldset,
+.persona-panel label {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.persona-panel fieldset {
+  border: 1px solid #d9d0e5;
+  border-radius: 12px;
+  margin-top: 0.8rem;
+}
+
+.persona-panel input,
+.persona-panel textarea {
+  border: 1px solid #c8bed7;
+  border-radius: 9px;
+  padding: 0.5rem;
+}
+
+.persona-panel ul {
+  display: grid;
+  gap: 0.5rem;
+  list-style: none;
+  padding: 0;
+}
+
+.persona-panel li {
+  background: #f1ebf8;
+  border-radius: 10px;
+  padding: 0.65rem;
+}
+
+.summary-panel {
+  background: #f1f7f5;
+  border: 1px solid #aec9c2;
+  border-radius: 16px;
+  margin-top: 1rem;
+  padding: 1rem;
+}
+
+.summary-panel__content,
+.summary-panel__content section {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.summary-panel__content section {
+  border-top: 1px solid #cadbd7;
+  padding-top: 0.75rem;
+}
+
+.summary-panel__content h3,
+.summary-panel__content h4,
+.summary-panel__content p {
+  margin: 0;
+}
+
+.summary-panel__hint {
+  color: #49665f;
+  font-size: 0.9rem;
+}
+
+.summary-panel__error {
+  color: #a33f3f;
+}
+
+.summary-panel__list {
+  display: grid;
+  gap: 0.65rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.summary-panel__list li {
+  background: #e8f1ee;
+  border: 1px solid #cadbd7;
+  border-radius: 12px;
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.75rem;
+}
+
+.summary-panel__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.summary-panel__confirmation {
+  background: #fff2d6;
+  border: 1px solid #d8b96f;
+  border-radius: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.65rem;
+}
+
+.memory-panel {
+  background: #fffaf2;
+  border: 1px solid #cdbdaa;
+  border-radius: 16px;
+  display: grid;
+  gap: 0.9rem;
+  margin-top: 1rem;
+  max-height: 64vh;
+  overflow-y: auto;
+  padding: 1rem;
+}
+
+.memory-panel h2,
+.memory-panel h3,
+.memory-panel h4,
+.memory-panel p {
+  margin: 0;
+}
+
+.memory-panel__hint {
+  color: #6e5b4d;
+  font-size: 0.9rem;
+}
+
+.memory-panel__error,
+.memory-panel__warning {
+  color: #a33f3f;
+}
+
+.memory-panel__form {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.memory-panel__form label {
+  display: grid;
+  font-weight: 700;
+  gap: 0.3rem;
+}
+
+.memory-panel__form textarea,
+.memory-panel__form input,
+.memory-panel__form select {
+  border: 1px solid #cdbdaa;
+  border-radius: 10px;
+  color: #2d2520;
+  padding: 0.55rem;
+}
+
+.memory-panel__list,
+.memory-history__list {
+  display: grid;
+  gap: 0.65rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.memory-panel__item,
+.memory-history__list li {
+  background: #f7efe4;
+  border: 1px solid #ded3c5;
+  border-radius: 12px;
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.75rem;
+}
+
+.memory-panel__item--conflict {
+  border-color: #c46c5c;
+}
+
+.memory-panel__actions,
+.memory-panel__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.memory-panel__badge {
+  background: #d8dfcc;
+  border-radius: 999px;
+  color: #435034;
+  font-size: 0.78rem;
+  padding: 0.2rem 0.5rem;
+}
+
+.memory-panel__badge--warning {
+  background: #ffe3b8;
+  color: #754b13;
+}
+
+.memory-panel__danger {
+  background: #a33f3f;
+}
+
+.memory-panel__confirmation {
+  background: #ffe6e1;
+  border: 1px solid #d46a5d;
+  border-radius: 10px;
+  display: grid;
+  gap: 0.55rem;
+  padding: 0.65rem;
+}
+
+.memory-automation,
+.memory-conflict-panel,
+.memory-history__content {
+  border-top: 1px solid #ded3c5;
+  display: grid;
+  gap: 0.65rem;
+  padding-top: 0.8rem;
+}
+
+.memory-history {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.memory-history > button {
+  background: #6d7f52;
+  justify-self: start;
+}
+
+.memory-history__content section {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.memory-history__redacted {
+  color: #6e5b4d;
+  font-style: italic;
+}
+
+.memory-conflict-panel__replacement {
+  background: #fffaf2;
+  border-radius: 10px;
+  padding: 0.65rem;
 }
 
 @media (max-width: 760px) {

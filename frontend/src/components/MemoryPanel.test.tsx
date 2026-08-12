@@ -16,6 +16,13 @@ const memory: MemoryRecord = {
   created_at: '2026-07-06T00:00:00Z',
   updated_at: '2026-07-06T00:00:00Z',
   metadata: {},
+  v2_state: 'active',
+  v2_source_kind: 'manual',
+  version_count: 1,
+  evidence_count: 0,
+  has_open_conflict: false,
+  can_undo_latest_auto: false,
+  canonical_subject_code: null,
 };
 
 const candidate: MemoryRecord = {
@@ -30,6 +37,13 @@ const candidate: MemoryRecord = {
   created_at: '2026-07-06T00:00:00Z',
   updated_at: '2026-07-06T00:00:00Z',
   metadata: { candidate_reason: 'explicit_like_statement' },
+  v2_state: null,
+  v2_source_kind: null,
+  version_count: 0,
+  evidence_count: 0,
+  has_open_conflict: false,
+  can_undo_latest_auto: false,
+  canonical_subject_code: null,
 };
 
 afterEach(() => {
@@ -49,7 +63,7 @@ describe('MemoryPanel', () => {
     render(<MemoryPanel memories={[]} candidates={[]} loading={false} error={null} conflicts={[]} onCreate={vi.fn()} onUpdate={vi.fn()} onDelete={vi.fn()} onConfirmCandidate={vi.fn()} onDismissCandidate={vi.fn()} />);
 
     expect(screen.getByText('长期记忆')).toBeInTheDocument();
-    expect(screen.getByText(/聊天记录不会自动变成长期记忆/)).toBeInTheDocument();
+    expect(screen.getByText(/自动写入仅在你单独授权本地写入且规则允许时发生/)).toBeInTheDocument();
     expect(screen.getByText('暂无长期记忆。')).toBeInTheDocument();
   });
 
@@ -80,7 +94,7 @@ describe('MemoryPanel', () => {
     const conflictRegion = screen.getByRole('region', { name: '冲突记忆明细' });
     expect(conflictRegion).toBeInTheDocument();
     expect(within(conflictRegion).getByText(/preference · importance 3 · confidence 1.00/)).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: '删除记忆' }));
+    await user.click(screen.getByRole('button', { name: '归档记忆' }));
     expect(onDelete).toHaveBeenCalledWith('m1');
   });
 
@@ -255,6 +269,88 @@ describe('MemoryPanel', () => {
     } finally {
       consoleError.mockRestore();
     }
+  });
+
+  it('separates archive and confirmed true forget and uses authoritative V2 indicators', async () => {
+    const automatic: MemoryRecord = {
+      ...memory,
+      id: 'auto-1',
+      source: 'manual',
+      v2_state: 'active',
+      v2_source_kind: 'automatic',
+      version_count: 3,
+      evidence_count: 2,
+      has_open_conflict: true,
+      can_undo_latest_auto: true,
+    };
+    const onArchive = vi.fn().mockResolvedValue(undefined);
+    const onForget = vi.fn().mockResolvedValue(undefined);
+    const onUndo = vi.fn().mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    render(
+      <MemoryPanel
+        memories={[automatic]}
+        candidates={[]}
+        loading={false}
+        error={null}
+        conflicts={[]}
+        onCreate={vi.fn()}
+        onUpdate={vi.fn()}
+        onDelete={vi.fn()}
+        onArchive={onArchive}
+        onForget={onForget}
+        onUndoLatestAuto={onUndo}
+        onConfirmCandidate={vi.fn()}
+        onDismissCandidate={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('自动写入')).toBeInTheDocument();
+    expect(screen.getByText('V2 当前有效')).toBeInTheDocument();
+    expect(screen.getByText('3 个版本')).toBeInTheDocument();
+    expect(screen.getByText('2 条证据')).toBeInTheDocument();
+    expect(screen.getByText('存在待解决冲突')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '归档记忆' }));
+    expect(onArchive).toHaveBeenCalledWith('auto-1');
+    expect(onForget).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: '真正忘记' }));
+    expect(screen.getByText(/不会删除原始聊天消息/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '确认真正忘记' }));
+    expect(onForget).toHaveBeenCalledWith('auto-1');
+
+    await user.click(screen.getByRole('button', { name: '撤销最近自动变化' }));
+    expect(onUndo).toHaveBeenCalledWith('auto-1');
+  });
+
+  it('hides automatic undo after a later user edit', () => {
+    const edited: MemoryRecord = {
+      ...memory,
+      id: 'edited-auto-create',
+      source: 'automatic',
+      v2_source_kind: 'user_edit',
+      version_count: 2,
+      evidence_count: 1,
+      can_undo_latest_auto: false,
+    };
+    render(
+      <MemoryPanel
+        memories={[edited]}
+        candidates={[]}
+        loading={false}
+        error={null}
+        conflicts={[]}
+        onCreate={vi.fn()}
+        onUpdate={vi.fn()}
+        onDelete={vi.fn()}
+        onUndoLatestAuto={vi.fn()}
+        onConfirmCandidate={vi.fn()}
+        onDismissCandidate={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('用户编辑')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '撤销最近自动变化' })).not.toBeInTheDocument();
   });
 
   it('renders pending candidates and candidate actions', async () => {

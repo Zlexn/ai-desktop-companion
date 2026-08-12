@@ -88,6 +88,51 @@ class MemoryAuditRepository:
         self._connection.commit()
         return event
 
+    def redact_for_memory_ids(
+        self,
+        memory_ids: set[str],
+    ) -> None:
+        if not memory_ids:
+            return
+        rows = self._connection.execute(
+            "SELECT id, memory_id, related_memory_ids_json FROM memory_audit_events"
+        ).fetchall()
+        redacted = metadata_to_json(
+            {"payload_redacted": True, "reason_code": "memory_true_forget"}
+        )
+        for row in rows:
+            related = set(_ids_from_json(str(row["related_memory_ids_json"])))
+            if str(row["memory_id"]) in memory_ids or related.intersection(memory_ids):
+                self._connection.execute(
+                    "UPDATE memory_audit_events SET metadata_json = ? WHERE id = ?",
+                    (redacted, str(row["id"])),
+                )
+
+    def record_memory_deleted(
+        self,
+        *,
+        memory_id: str,
+        related_memory_ids: list[str],
+        created_at: datetime,
+    ) -> None:
+        self._connection.execute(
+            """
+            INSERT INTO memory_audit_events (
+                id, event_type, memory_id, related_memory_ids_json,
+                operation, metadata_json, created_at
+            ) VALUES (?, 'memory_deleted', ?, ?, 'forget', ?, ?)
+            """,
+            (
+                str(uuid.uuid4()),
+                memory_id,
+                _ids_to_json(related_memory_ids),
+                metadata_to_json(
+                    {"payload_redacted": True, "reason_code": "memory_true_forget"}
+                ),
+                _to_iso(created_at),
+            ),
+        )
+
     def list_recent(self, limit: int = 20) -> list[MemoryAuditEvent]:
         rows = self._connection.execute(
             """

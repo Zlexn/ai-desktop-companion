@@ -8,6 +8,7 @@ from app.core.resources import close_async_resource
 
 from app.domain.models import ChatRole, Message
 from app.providers.base import LLMMessage, LLMOptions, LLMProvider
+from app.services.credential_sanitizer import sanitize_credentials
 from app.services.session_summary_sanitizer import sanitize_summary_text
 
 
@@ -97,7 +98,7 @@ class LLMSessionSummaryProvider:
             [
                 {
                     "role": message.role.value,
-                    "content": sanitize_summary_text(message.content),
+                    "content": sanitize_credentials(message.content)[0],
                 }
                 for message in messages
             ],

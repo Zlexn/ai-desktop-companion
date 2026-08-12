@@ -1,4 +1,4 @@
-# Windows Electron Dual-Window Shell Implementation Plan
+﻿# Windows Electron Dual-Window Shell Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -26,93 +26,93 @@ It must not:
 
 ### Create
 
-- `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\main.mjs`
+- `<project-root>\frontend\electron\main.mjs`
   - Electron application entry point; registers the privileged `pet-asset:` scheme before readiness, creates the desktop controller, and handles true quit only.
-- `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\runtime-config.mjs`
+- `<project-root>\frontend\electron\runtime-config.mjs`
   - Parses one exact development Vite origin and derives the allowed HTTP/WebSocket origins and chat/pet entry URLs.
-- `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\shared\presentation-contract.mjs`
+- `<project-root>\frontend\electron\shared\presentation-contract.mjs`
   - Single shared strict `PresentationSnapshotV1` parser and invariants used by both main and renderer bundles.
-- `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\shared\presentation-contract.d.mts`
+- `<project-root>\frontend\electron\shared\presentation-contract.d.mts`
   - Type declarations for importing the native ESM shared contract from TypeScript renderers.
-- `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\settings.mjs`
+- `<project-root>\frontend\electron\settings.mjs`
   - Atomic, schema-validated settings persistence for window bounds, display identifier, always-on-top, and click-through only.
-- `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\asset-store.mjs`
+- `<project-root>\frontend\electron\asset-store.mjs`
   - Validates authorized static PNG/WebP imports, atomically copies them to `userData/assets`, and maintains the manifest as the sole asset authority.
-- `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\asset-scheme.mjs`
+- `<project-root>\frontend\electron\asset-scheme.mjs`
   - Implements fixed, read-only `pet-asset://active/current?revision=<n>` handling.
-- `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\projection-broker.mjs`
+- `<project-root>\frontend\electron\projection-broker.mjs`
   - Issues epochs, validates chat publication order, stores only the latest valid snapshot in memory, relays snapshots/resets, and replays current state.
-- `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\security.mjs`
+- `<project-root>\frontend\electron\security.mjs`
   - Creates hardened BrowserWindow preferences, CSP headers, explicit navigation/popup/download rules, permission policy, and outbound request allowlists.
-- `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\windows.mjs`
+- `<project-root>\frontend\electron\windows.mjs`
   - Creates singleton chat/pet windows, applies safe bounds restoration, controls hide-vs-quit semantics, draggable regions, always-on-top, and click-through.
-- `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\tray.mjs`
+- `<project-root>\frontend\electron\tray.mjs`
   - Creates the fixed tray menu and reflects actual window/native-API state.
-- `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\ipc.mjs`
+- `<project-root>\frontend\electron\ipc.mjs`
   - Registers fixed IPC channels with sender, frame, origin, exact-object, and schema validation.
-- `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\preload-chat.cjs`
+- `<project-root>\frontend\electron\preload-chat.cjs`
   - Exposes the restricted chat bridge; no generic IPC, Node, filesystem, paths, shell, environment, or Electron objects.
-- `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\preload-pet.cjs`
+- `<project-root>\frontend\electron\preload-pet.cjs`
   - Exposes the restricted pet bridge for snapshot subscription/replay and limited pet-window interaction only.
-- `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\assets\neutral.png`
+- `<project-root>\frontend\electron\assets\neutral.png`
   - Repository-owned, neutral static PNG fallback fixture; no protected or user-provided material.
-- `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\src\desktop\presentation.ts`
+- `<project-root>\frontend\src\desktop\presentation.ts`
   - Typed renderer-facing re-export of the shared parser and protocol types.
-- `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\src\desktop\bridge.ts`
+- `<project-root>\frontend\src\desktop\bridge.ts`
   - Narrow TypeScript declarations for `window.desktopChat` and `window.desktopPet`.
-- `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\src\desktop\useDesktopProjection.ts`
+- `<project-root>\frontend\src\desktop\useDesktopProjection.ts`
   - Derives and publishes full snapshots from existing Stage 4E preview state; browser use remains a safe no-op.
-- `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\src\desktop\useDesktopControls.ts`
+- `<project-root>\frontend\src\desktop\useDesktopControls.ts`
   - Owns chat-side desktop command status and sanitized asset/window feedback.
-- `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\src\components\DesktopControls.tsx`
+- `<project-root>\frontend\src\components\DesktopControls.tsx`
   - Minimal chat UI for pet visibility, static asset import/clear, and safe state feedback.
-- `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\pet.html`
+- `<project-root>\frontend\pet.html`
   - Independent pet Vite entry document.
-- `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\src\pet\main.tsx`
+- `<project-root>\frontend\src\pet\main.tsx`
   - React entry for the pet renderer.
-- `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\src\pet\PetApp.tsx`
+- `<project-root>\frontend\src\pet\PetApp.tsx`
   - Read-only pet root; never imports API clients, audio hooks, recording code, or chat state.
-- `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\src\pet\presentationReducer.ts`
+- `<project-root>\frontend\src\pet\presentationReducer.ts`
   - Epoch/sequence/reset-aware pet state reducer with neutral/idle failure downgrade.
-- `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\src\pet\StaticImageRenderer.tsx`
+- `<project-root>\frontend\src\pet\StaticImageRenderer.tsx`
   - `contain`-based static asset renderer with limited delivery CSS and reduced-motion behavior.
-- `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\src\pet\pet.css`
+- `<project-root>\frontend\src\pet\pet.css`
   - Transparent window styles, explicit pet hit target, finite delivery styles, phase animation, and reduced-motion override.
-- `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\vite.electron-tests.config.ts`
+- `<project-root>\frontend\vite.electron-tests.config.ts`
   - Node-environment Vitest configuration for Electron pure module/integration tests.
-- `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\scripts\smoke_windows_electron_shell.ps1`
+- `<project-root>\scripts\smoke_windows_electron_shell.ps1`
   - Headed Windows-only fake-first smoke orchestration and cleanup verifier.
-- `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\scripts\smoke_windows_electron_shell.cmd`
+- `<project-root>\scripts\smoke_windows_electron_shell.cmd`
   - Command Prompt wrapper for the PowerShell smoke.
-- `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\docs\windows-electron-shell-smoke-checklist.md`
+- `<project-root>\docs\windows-electron-shell-smoke-checklist.md`
   - Human-executed Windows tray/layering/click-through checklist, filled only with real observed results after validation.
 
 ### Modify
 
-- `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\package.json`
+- `<project-root>\frontend\package.json`
   - Pin Electron 43.1.1, add desktop/test/smoke scripts, and do not add a packager.
-- `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\package-lock.json`
+- `<project-root>\frontend\package-lock.json`
   - Lock the exact Electron dependency graph generated by npm.
-- `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\vite.config.ts`
+- `<project-root>\frontend\vite.config.ts`
   - Support two renderer HTML entries and an explicitly configured loopback dev origin without changing the existing `/api` or `/health` proxy semantics.
-- `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\src\App.tsx`
+- `<project-root>\frontend\src\App.tsx`
   - Connect the existing Stage 4E preview state to desktop publication and desktop controls without moving business/audio ownership.
-- `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\src\components\ChatLayout.tsx`
+- `<project-root>\frontend\src\components\ChatLayout.tsx`
   - Place `DesktopControls` in the chat UI and forward only desktop control state/callbacks.
-- `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\src\styles.css`
+- `<project-root>\frontend\src\styles.css`
   - Add desktop-control styles only. The chat window keeps its native Windows frame; all pet transparent/drag rules remain in `src/pet/pet.css`.
-- `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\.gitignore`
+- `<project-root>\.gitignore`
   - Ignore only explicit Electron smoke output and local temporary `userData` directories.
-- `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\README.md`
+- `<project-root>\README.md`
   - Add run instructions and completed evidence only after all acceptance gates pass.
-- `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\CLAUDE.md`
+- `<project-root>\CLAUDE.md`
   - Update the current desktop-shell status only after real validation is complete.
 
 ### Test files to create
 
-- `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\shared\presentation-contract.test.ts`
-- `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\shared\desktop-state.test.ts`
-- `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\asset-manifest.test.ts`
+- `<project-root>\frontend\electron\shared\presentation-contract.test.ts`
+- `<project-root>\frontend\electron\shared\desktop-state.test.ts`
+- `<project-root>\frontend\electron\asset-manifest.test.ts`
 - `frontend/electron/asset-store.test.ts`
 - `frontend/electron/asset-scheme.test.ts`
 - `frontend/electron/projection-broker.test.ts`
@@ -136,15 +136,15 @@ It must not:
 ## Task 1: Establish Electron development tooling and two renderer entries
 
 **Files:**
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\dev-origin.mjs`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\src\desktop\electronSetup.test.ts`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\pet.html`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\src\pet\main.tsx`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\scripts\check-pet-build.mjs`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\vite.electron-tests.config.ts`
-- Modify: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\package.json`
-- Modify: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\package-lock.json`
-- Modify: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\vite.config.ts`
+- Create: `<project-root>\frontend\dev-origin.mjs`
+- Create: `<project-root>\frontend\src\desktop\electronSetup.test.ts`
+- Create: `<project-root>\frontend\pet.html`
+- Create: `<project-root>\frontend\src\pet\main.tsx`
+- Create: `<project-root>\frontend\scripts\check-pet-build.mjs`
+- Create: `<project-root>\frontend\vite.electron-tests.config.ts`
+- Modify: `<project-root>\frontend\package.json`
+- Modify: `<project-root>\frontend\package-lock.json`
+- Modify: `<project-root>\frontend\vite.config.ts`
 
 - [ ] **Step 1: Add a failing configuration test that requires an exact Electron pin and pet HTML entry.**
 
@@ -174,7 +174,7 @@ it('has an independent executable pet renderer entry', async () => {
 - [ ] **Step 2: Run the focused test and verify RED.**
 
 ```powershell
-Push-Location "C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend"
+Push-Location "<project-root>\frontend"
 npm test -- --run src/desktop/electronSetup.test.ts
 Pop-Location
 ```
@@ -310,7 +310,7 @@ export default defineConfig({
 Install only the locked development dependency:
 
 ```powershell
-Push-Location "C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend"
+Push-Location "<project-root>\frontend"
 npm install --save-dev --save-exact electron@43.1.1
 Pop-Location
 ```
@@ -318,7 +318,7 @@ Pop-Location
 - [ ] **Step 4: Run setup, type, and production-build checks.**
 
 ```powershell
-Push-Location "C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend"
+Push-Location "<project-root>\frontend"
 npm run test:electron
 npm run typecheck
 npm run build
@@ -341,11 +341,11 @@ git commit -m "build: add pinned Electron development shell tooling"
 ## Task 2: Define the shared strict presentation contract
 
 **Files:**
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\shared\presentation-contract.mjs`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\shared\presentation-contract.d.mts`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\shared\presentation-contract.test.ts`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\src\desktop\bridge.ts`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\src\desktop\presentation.ts`
+- Create: `<project-root>\frontend\electron\shared\presentation-contract.mjs`
+- Create: `<project-root>\frontend\electron\shared\presentation-contract.d.mts`
+- Create: `<project-root>\frontend\electron\shared\presentation-contract.test.ts`
+- Create: `<project-root>\frontend\src\desktop\bridge.ts`
+- Create: `<project-root>\frontend\src\desktop\presentation.ts`
 
 - [ ] **Step 1: Write parser tests for exact objects, Stage 4E enums, finite values, and state invariants.**
 
@@ -394,7 +394,7 @@ describe('parsePresentationSnapshot', () => {
 - [ ] **Step 2: Run the parser test and verify RED.**
 
 ```powershell
-Push-Location "C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend"
+Push-Location "<project-root>\frontend"
 npm run test:electron -- electron/shared/presentation-contract.test.ts
 Pop-Location
 ```
@@ -468,7 +468,7 @@ Expose typed declarations using the same literal union types, then re-export the
 - [ ] **Step 4: Run protocol tests and renderer typecheck.**
 
 ```powershell
-Push-Location "C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend"
+Push-Location "<project-root>\frontend"
 npm run test:electron -- electron/shared/presentation-contract.test.ts
 npm run typecheck
 Pop-Location
@@ -488,14 +488,14 @@ git commit -m "feat: define strict desktop presentation contract"
 ## Task 3: Implement the read-only pet renderer and epoch-aware reducer
 
 **Files:**
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\src\pet\presentationReducer.ts`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\src\pet\presentationReducer.test.ts`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\src\pet\StaticImageRenderer.tsx`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\src\pet\StaticImageRenderer.test.tsx`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\src\pet\PetApp.tsx`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\src\pet\PetApp.test.tsx`
-- Modify: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\src\pet\main.tsx`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\src\pet\pet.css`
+- Create: `<project-root>\frontend\src\pet\presentationReducer.ts`
+- Create: `<project-root>\frontend\src\pet\presentationReducer.test.ts`
+- Create: `<project-root>\frontend\src\pet\StaticImageRenderer.tsx`
+- Create: `<project-root>\frontend\src\pet\StaticImageRenderer.test.tsx`
+- Create: `<project-root>\frontend\src\pet\PetApp.tsx`
+- Create: `<project-root>\frontend\src\pet\PetApp.test.tsx`
+- Modify: `<project-root>\frontend\src\pet\main.tsx`
+- Create: `<project-root>\frontend\src\pet\pet.css`
 
 - [ ] **Step 1: Write reducer tests for reset, stale epoch, stale sequence, and neutral fallback.**
 
@@ -535,7 +535,7 @@ it('clears state on epoch reset and rejects old-epoch data', () => {
 - [ ] **Step 2: Run focused renderer tests and verify RED.**
 
 ```powershell
-Push-Location "C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend"
+Push-Location "<project-root>\frontend"
 npm test -- --run src/pet/presentationReducer.test.ts src/pet/StaticImageRenderer.test.tsx
 Pop-Location
 ```
@@ -590,7 +590,7 @@ It must render an image with `object-fit: contain`, use a fixed Chinese fallback
 - [ ] **Step 4: Run the pet tests and production build.**
 
 ```powershell
-Push-Location "C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend"
+Push-Location "<project-root>\frontend"
 npm test -- --run src/pet/presentationReducer.test.ts src/pet/StaticImageRenderer.test.tsx src/pet/PetApp.test.tsx
 npm run build
 Pop-Location
@@ -610,11 +610,11 @@ git commit -m "feat: add read-only static pet renderer"
 ## Task 4: Add hardened runtime configuration and BrowserWindow security defaults
 
 **Files:**
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\runtime-config.mjs`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\security.mjs`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\security.test.ts`
-- Modify: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\vite.config.ts`
-- Modify: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\package.json`
+- Create: `<project-root>\frontend\electron\runtime-config.mjs`
+- Create: `<project-root>\frontend\electron\security.mjs`
+- Create: `<project-root>\frontend\electron\security.test.ts`
+- Modify: `<project-root>\frontend\vite.config.ts`
+- Modify: `<project-root>\frontend\package.json`
 
 - [ ] **Step 1: Write security tests for exact origin parsing, CSP, and blocked outbound classes.**
 
@@ -645,7 +645,7 @@ it('blocks external fetches but retains Vite HMR, same-origin proxy, blob audio,
 - [ ] **Step 2: Run focused security tests and verify RED.**
 
 ```powershell
-Push-Location "C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend"
+Push-Location "<project-root>\frontend"
 npm run test:electron -- electron/security.test.ts
 Pop-Location
 ```
@@ -704,7 +704,7 @@ Generate both CSP strings from `runtimeConfig.viteOrigin`, `runtimeConfig.viteWe
 - [ ] **Step 4: Run security tests and a manual DevTools CSP inspection.**
 
 ```powershell
-Push-Location "C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend"
+Push-Location "<project-root>\frontend"
 npm run test:electron -- electron/security.test.ts
 npm run typecheck
 Pop-Location
@@ -724,8 +724,8 @@ git commit -m "feat: harden Electron renderer security boundary"
 ## Task 5: Implement settings, safe bounds restoration, and window preferences only
 
 **Files:**
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\settings.mjs`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\settings.test.ts`
+- Create: `<project-root>\frontend\electron\settings.mjs`
+- Create: `<project-root>\frontend\electron\settings.test.ts`
 
 - [ ] **Step 1: Write tests for exact settings schema, corruption fallback, clamping, and prohibited fields.**
 
@@ -747,7 +747,7 @@ it('clamps offscreen pet bounds into the current display work area', () => {
 - [ ] **Step 2: Run settings tests and verify RED.**
 
 ```powershell
-Push-Location "C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend"
+Push-Location "<project-root>\frontend"
 npm run test:electron -- electron/settings.test.ts
 Pop-Location
 ```
@@ -775,7 +775,7 @@ For first pet display, calculate a visible right-bottom location from the primar
 - [ ] **Step 4: Run settings tests.**
 
 ```powershell
-Push-Location "C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend"
+Push-Location "<project-root>\frontend"
 npm run test:electron -- electron/settings.test.ts
 Pop-Location
 ```
@@ -794,15 +794,15 @@ git commit -m "feat: persist only safe desktop window preferences"
 ## Task 6: Implement atomic authorized static-asset import and manifest recovery
 
 **Files:**
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\asset-manifest.mjs`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\asset-store.mjs`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\asset-manifest.test.ts`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\asset-store.test.ts`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\test-fixtures\authorized-static.png`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\test-fixtures\authorized-static.webp`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\test-fixtures\animated.webp`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\test-fixtures\invalid-image.bin`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\assets\neutral.png`
+- Create: `<project-root>\frontend\electron\asset-manifest.mjs`
+- Create: `<project-root>\frontend\electron\asset-store.mjs`
+- Create: `<project-root>\frontend\electron\asset-manifest.test.ts`
+- Create: `<project-root>\frontend\electron\asset-store.test.ts`
+- Create: `<project-root>\frontend\electron\test-fixtures\authorized-static.png`
+- Create: `<project-root>\frontend\electron\test-fixtures\authorized-static.webp`
+- Create: `<project-root>\frontend\electron\test-fixtures\animated.webp`
+- Create: `<project-root>\frontend\electron\test-fixtures\invalid-image.bin`
+- Create: `<project-root>\frontend\electron\assets\neutral.png`
 
 - [ ] **Step 1: Write failing asset tests for valid import, rejection, rollback, clear, and restart restoration.**
 
@@ -854,7 +854,7 @@ it.each([
 - [ ] **Step 2: Run asset-store tests and verify RED.**
 
 ```powershell
-Push-Location "C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend"
+Push-Location "<project-root>\frontend"
 npm run test:electron -- electron/asset-store.test.ts
 Pop-Location
 ```
@@ -905,7 +905,7 @@ The transaction must:
 - [ ] **Step 4: Run asset-store tests.**
 
 ```powershell
-Push-Location "C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend"
+Push-Location "<project-root>\frontend"
 npm run test:electron -- electron/asset-store.test.ts
 Pop-Location
 ```
@@ -924,15 +924,15 @@ git commit -m "feat: add atomic authorized static asset storage"
 ## Task 7: Register the fixed `pet-asset:` scheme
 
 **Files:**
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\bootstrap-config.mjs`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\bootstrap-config.test.ts`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\desktop-application.mjs`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\main.mjs`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\asset-scheme.mjs`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\asset-scheme.test.ts`
-- Modify: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\package.json`
-- Modify: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\src\desktop\electronSetup.test.ts`
-- Modify: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\main.mjs`
+- Create: `<project-root>\frontend\electron\bootstrap-config.mjs`
+- Create: `<project-root>\frontend\electron\bootstrap-config.test.ts`
+- Create: `<project-root>\frontend\electron\desktop-application.mjs`
+- Create: `<project-root>\frontend\electron\main.mjs`
+- Create: `<project-root>\frontend\electron\asset-scheme.mjs`
+- Create: `<project-root>\frontend\electron\asset-scheme.test.ts`
+- Modify: `<project-root>\frontend\package.json`
+- Modify: `<project-root>\frontend\src\desktop\electronSetup.test.ts`
+- Modify: `<project-root>\frontend\electron\main.mjs`
 
 - [ ] **Step 1: Write scheme resolution tests.**
 
@@ -970,7 +970,7 @@ it.each([
 - [ ] **Step 2: Run scheme tests and verify RED.**
 
 ```powershell
-Push-Location "C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend"
+Push-Location "<project-root>\frontend"
 npm run test:electron -- electron/asset-scheme.test.ts
 Pop-Location
 ```
@@ -1018,7 +1018,7 @@ It must reject all other host/path/query combinations. Resolve the file from the
 - [ ] **Step 4: Run scheme and asset regression tests.**
 
 ```powershell
-Push-Location "C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend"
+Push-Location "<project-root>\frontend"
 npm run test:electron -- electron/asset-scheme.test.ts electron/asset-store.test.ts
 Pop-Location
 ```
@@ -1037,8 +1037,8 @@ git commit -m "feat: serve active pet assets through fixed scheme"
 ## Task 8: Implement the main-owned projection epoch and sequence broker
 
 **Files:**
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\projection-broker.mjs`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\projection-broker.test.ts`
+- Create: `<project-root>\frontend\electron\projection-broker.mjs`
+- Create: `<project-root>\frontend\electron\projection-broker.test.ts`
 
 - [ ] **Step 1: Write the epoch, reload, stale sequence, and replay tests.**
 
@@ -1084,7 +1084,7 @@ it('rejects stale sequences and replays only the latest current-epoch snapshot',
 - [ ] **Step 2: Run broker tests and verify RED.**
 
 ```powershell
-Push-Location "C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend"
+Push-Location "<project-root>\frontend"
 npm run test:electron -- electron/projection-broker.test.ts
 Pop-Location
 ```
@@ -1112,7 +1112,7 @@ The broker must:
 - [ ] **Step 4: Run broker tests.**
 
 ```powershell
-Push-Location "C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend"
+Push-Location "<project-root>\frontend"
 npm run test:electron -- electron/projection-broker.test.ts
 Pop-Location
 ```
@@ -1131,14 +1131,14 @@ git commit -m "feat: broker ordered read-only pet projections"
 ## Task 9: Add sandbox-compatible preloads and fixed IPC validation
 
 **Files:**
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\shared\desktop-state.mjs`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\shared\desktop-state.d.mts`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\shared\desktop-state.test.ts`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\preload-chat.cjs`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\preload-pet.cjs`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\ipc.mjs`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\ipc.test.ts`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\preload-contract.test.ts`
+- Create: `<project-root>\frontend\electron\shared\desktop-state.mjs`
+- Create: `<project-root>\frontend\electron\shared\desktop-state.d.mts`
+- Create: `<project-root>\frontend\electron\shared\desktop-state.test.ts`
+- Create: `<project-root>\frontend\electron\preload-chat.cjs`
+- Create: `<project-root>\frontend\electron\preload-pet.cjs`
+- Create: `<project-root>\frontend\electron\ipc.mjs`
+- Create: `<project-root>\frontend\electron\ipc.test.ts`
+- Create: `<project-root>\frontend\electron\preload-contract.test.ts`
 
 - [ ] **Step 1: Write failing tests for sender/frame/origin checks and bridge API whitelists.**
 
@@ -1163,7 +1163,7 @@ it('exposes no generic Electron capability in either preload bridge', () => {
 - [ ] **Step 2: Run IPC tests and verify RED.**
 
 ```powershell
-Push-Location "C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend"
+Push-Location "<project-root>\frontend"
 npm run test:electron -- electron/ipc.test.ts electron/preload-contract.test.ts
 Pop-Location
 ```
@@ -1218,7 +1218,7 @@ For each main handler, verify the exact `event.sender`, `event.senderFrame === e
 - [ ] **Step 4: Run IPC/preload tests.**
 
 ```powershell
-Push-Location "C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend"
+Push-Location "<project-root>\frontend"
 npm run test:electron -- electron/ipc.test.ts electron/preload-contract.test.ts electron/projection-broker.test.ts
 Pop-Location
 ```
@@ -1237,11 +1237,11 @@ git commit -m "feat: add validated desktop IPC bridges"
 ## Task 10: Implement singleton windows, tray lifecycle, topmost, click-through, and quit semantics
 
 **Files:**
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\windows.mjs`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\tray.mjs`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\windows.test.ts`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\tray.test.ts`
-- Modify: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\main.mjs`
+- Create: `<project-root>\frontend\electron\windows.mjs`
+- Create: `<project-root>\frontend\electron\tray.mjs`
+- Create: `<project-root>\frontend\electron\windows.test.ts`
+- Create: `<project-root>\frontend\electron\tray.test.ts`
+- Modify: `<project-root>\frontend\electron\main.mjs`
 
 - [ ] **Step 1: Write lifecycle and tray-state tests.**
 
@@ -1271,7 +1271,7 @@ it('falls back to interactive mode when click-through native call fails', async 
 - [ ] **Step 2: Run lifecycle tests and verify RED.**
 
 ```powershell
-Push-Location "C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend"
+Push-Location "<project-root>\frontend"
 npm run test:electron -- electron/windows.test.ts electron/tray.test.ts
 Pop-Location
 ```
@@ -1305,7 +1305,7 @@ The menu must rebuild/read current state before display. It must not claim check
 - [ ] **Step 4: Run controller tests and an Electron startup syntax check.**
 
 ```powershell
-Push-Location "C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend"
+Push-Location "<project-root>\frontend"
 npm run test:electron -- electron/windows.test.ts electron/tray.test.ts
 node --check electron/main.mjs
 Pop-Location
@@ -1325,16 +1325,16 @@ git commit -m "feat: add Electron window and tray lifecycle"
 ## Task 11: Connect chat-owned Stage 4E state to desktop projection and controls
 
 **Files:**
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\src\desktop\bridge.ts`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\src\desktop\useDesktopProjection.ts`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\src\desktop\useDesktopProjection.test.tsx`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\src\desktop\useDesktopControls.ts`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\src\desktop\useDesktopControls.test.tsx`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\src\components\DesktopControls.tsx`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\src\components\DesktopControls.test.tsx`
-- Modify: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\src\App.tsx`
-- Modify: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\src\components\ChatLayout.tsx`
-- Modify: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\src\styles.css`
+- Create: `<project-root>\frontend\src\desktop\bridge.ts`
+- Create: `<project-root>\frontend\src\desktop\useDesktopProjection.ts`
+- Create: `<project-root>\frontend\src\desktop\useDesktopProjection.test.tsx`
+- Create: `<project-root>\frontend\src\desktop\useDesktopControls.ts`
+- Create: `<project-root>\frontend\src\desktop\useDesktopControls.test.tsx`
+- Create: `<project-root>\frontend\src\components\DesktopControls.tsx`
+- Create: `<project-root>\frontend\src\components\DesktopControls.test.tsx`
+- Modify: `<project-root>\frontend\src\App.tsx`
+- Modify: `<project-root>\frontend\src\components\ChatLayout.tsx`
+- Modify: `<project-root>\frontend\src\styles.css`
 
 - [ ] **Step 1: Write projection hook tests that prove browser no-op and chat-owned ordering.**
 
@@ -1385,7 +1385,7 @@ it('does nothing in existing browser tests when Electron bridge is absent', asyn
 - [ ] **Step 2: Run focused hook/component tests and verify RED.**
 
 ```powershell
-Push-Location "C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend"
+Push-Location "<project-root>\frontend"
 npm test -- --run src/desktop/useDesktopProjection.test.tsx src/desktop/useDesktopControls.test.tsx src/components/DesktopControls.test.tsx
 Pop-Location
 ```
@@ -1451,7 +1451,7 @@ It must not show filesystem paths, original file names, opaque IDs, message IDs,
 - [ ] **Step 4: Run focused UI tests, Stage 4E regressions, and typecheck.**
 
 ```powershell
-Push-Location "C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend"
+Push-Location "<project-root>\frontend"
 npm test -- --run src/desktop/useDesktopProjection.test.tsx src/desktop/useDesktopControls.test.tsx src/components/DesktopControls.test.tsx src/hooks/useExpressionPreviewController.test.tsx src/components/ExpressionPreview.test.tsx src/App.test.tsx
 npm run typecheck
 Pop-Location
@@ -1471,18 +1471,18 @@ git commit -m "feat: publish chat-owned presentation to desktop shell"
 ## Task 12: Integrate all Electron modules in the main entry and test cross-boundary behavior
 
 **Files:**
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\desktop-application.integration.test.ts`
-- Modify: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\desktop-application.mjs`
-- Modify: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\main.mjs`
-- Modify: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\ipc.mjs`
-- Modify: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\projection-broker.test.ts`
-- Modify: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\settings.test.ts`
-- Modify: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\asset-store.test.ts`
-- Modify: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\asset-scheme.test.ts`
-- Modify: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\security.test.ts`
-- Modify: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\windows.test.ts`
-- Modify: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\tray.test.ts`
-- Modify: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\electron\ipc.test.ts`
+- Create: `<project-root>\frontend\electron\desktop-application.integration.test.ts`
+- Modify: `<project-root>\frontend\electron\desktop-application.mjs`
+- Modify: `<project-root>\frontend\electron\main.mjs`
+- Modify: `<project-root>\frontend\electron\ipc.mjs`
+- Modify: `<project-root>\frontend\electron\projection-broker.test.ts`
+- Modify: `<project-root>\frontend\electron\settings.test.ts`
+- Modify: `<project-root>\frontend\electron\asset-store.test.ts`
+- Modify: `<project-root>\frontend\electron\asset-scheme.test.ts`
+- Modify: `<project-root>\frontend\electron\security.test.ts`
+- Modify: `<project-root>\frontend\electron\windows.test.ts`
+- Modify: `<project-root>\frontend\electron\tray.test.ts`
+- Modify: `<project-root>\frontend\electron\ipc.test.ts`
 
 - [ ] **Step 1: Add an integration-style fake-adapter test for chat reload, pet reload, asset change, and close-to-hide.**
 
@@ -1524,7 +1524,7 @@ it('resets pet before accepting a snapshot after chat reload, while pet reload r
 - [ ] **Step 2: Run the integration test and verify RED.**
 
 ```powershell
-Push-Location "C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend"
+Push-Location "<project-root>\frontend"
 npm run test:electron -- electron/desktop-application.integration.test.ts
 Pop-Location
 ```
@@ -1554,7 +1554,7 @@ The composition root must not statically import the `electron` package, backend 
 - [ ] **Step 4: Run all Electron unit/integration tests.**
 
 ```powershell
-Push-Location "C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend"
+Push-Location "<project-root>\frontend"
 npm run test:electron
 Pop-Location
 ```
@@ -1573,12 +1573,12 @@ git commit -m "feat: compose secure Electron dual-window shell"
 ## Task 13: Add fake-first Windows headed smoke orchestration and cleanup checks
 
 **Files:**
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\scripts\smoke-electron-shell-plan.mjs`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend\scripts\smoke-electron-shell.test.mjs`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\scripts\smoke_windows_electron_shell.ps1`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\scripts\smoke_windows_electron_shell.cmd`
-- Create: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\docs\windows-electron-shell-smoke-checklist.md`
-- Modify: `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\.gitignore`
+- Create: `<project-root>\frontend\scripts\smoke-electron-shell-plan.mjs`
+- Create: `<project-root>\frontend\scripts\smoke-electron-shell.test.mjs`
+- Create: `<project-root>\scripts\smoke_windows_electron_shell.ps1`
+- Create: `<project-root>\scripts\smoke_windows_electron_shell.cmd`
+- Create: `<project-root>\docs\windows-electron-shell-smoke-checklist.md`
+- Modify: `<project-root>\.gitignore`
 
 - [ ] **Step 1: Write a script-level test for isolated fake-first environment construction.**
 
@@ -1602,7 +1602,7 @@ it('passes unique fake-provider database, loopback ports, and Electron userData 
 - [ ] **Step 2: Run the smoke-plan test and verify RED.**
 
 ```powershell
-Push-Location "C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend"
+Push-Location "<project-root>\frontend"
 npm test -- --run scripts/smoke-electron-shell.test.mjs
 Pop-Location
 ```
@@ -1630,7 +1630,7 @@ The script must not claim that tray, true transparency, z-order, drag interactio
 - [ ] **Step 4: Run the script’s non-destructive help/preflight and inspect cleanup behavior.**
 
 ```powershell
-Set-Location "C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠"
+Set-Location "<project-root>"
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\scripts\smoke_windows_electron_shell.ps1" -Help
 ```
 
@@ -1648,14 +1648,14 @@ git commit -m "test: add headed Windows Electron shell smoke harness"
 ## Task 14: Run full regression, real Windows smoke, security review, and evidence-gated documentation
 
 **Files (modify only after all checks pass):**
-- `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\README.md`
-- `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\CLAUDE.md`
-- `C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\docs\windows-electron-shell-smoke-checklist.md`
+- `<project-root>\README.md`
+- `<project-root>\CLAUDE.md`
+- `<project-root>\docs\windows-electron-shell-smoke-checklist.md`
 
 - [ ] **Step 1: Run the complete automated frontend and Electron test suite.**
 
 ```powershell
-Push-Location "C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠\frontend"
+Push-Location "<project-root>\frontend"
 npm test -- --run
 npm run test:electron
 npm run typecheck
@@ -1669,7 +1669,7 @@ Expected: PASS. Existing Playwright browser E2E remains browser-based and must n
 - [ ] **Step 2: Run the existing Python regression suite without changing backend code.**
 
 ```powershell
-Set-Location "C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠"
+Set-Location "<project-root>"
 .\.venv\Scripts\python.exe -m pytest backend\tests tests -q
 ```
 
@@ -1678,7 +1678,7 @@ Expected: PASS. If the repository uses a different approved virtual environment,
 - [ ] **Step 3: Execute the headed Windows 11 smoke in a real desktop session.**
 
 ```powershell
-Set-Location "C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠"
+Set-Location "<project-root>"
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\scripts\smoke_windows_electron_shell.ps1"
 ```
 
@@ -1702,7 +1702,7 @@ Expected manual observations, all recorded individually in the checklist:
 - [ ] **Step 4: Perform final hygiene and review gates.**
 
 ```powershell
-Set-Location "C:\Users\张乐航\Desktop\AI桌宠-主体-20260710\AI桌宠"
+Set-Location "<project-root>"
 git diff --check
 git status --short
 ```

@@ -84,6 +84,7 @@ class SessionRepository:
         self._connection.commit()
 
     def delete(self, session_id: str) -> bool:
+        """Legacy direct deletion; API callers must use SessionDeletionCoordinator."""
         self._connection.execute(
             """
             UPDATE emotion_events
