@@ -17,9 +17,10 @@ from app.repositories.memory_audit import MemoryAuditRepository
 from app.repositories.versioned_memories import VersionedMemoryRepository
 from app.services.memory_commit_policy import canonicalize_memory_v1
 from app.services.memory_gate_b_contract import MEMORY_CANONICALIZATION_VERSION
-from app.services.versioned_memory_mutation import VersionedMemoryMutationPrimitive
 from app.services.memory_source_reference import MemorySourceReferenceService
+from app.services.relationship_privacy import RelationshipPrivacyPrimitive
 from app.services.summary_invalidation import SummaryInvalidationPrimitive
+from app.services.versioned_memory_mutation import VersionedMemoryMutationPrimitive
 
 
 _DELETED_METADATA_REASON = "memory_true_forget"
@@ -374,10 +375,35 @@ class MemoryForgetService:
         self._checkpoint("state_head")
         self._primitive.redact_projection(memory_id, updated_at=now)
         self._checkpoint("projection")
+        # Relationship privacy: purge preferred-address apply payload, revoke,
+        # suppress, and activate a no-address projection before the source
+        # payload is cleared, so no readable relationship copy survives. Only
+        # runs when the memory actually has preferred-address relationship
+        # state; ordinary memories are unaffected.
+        if self._has_preferred_address_relationship(memory_id):
+            RelationshipPrivacyPrimitive(
+                self._connection,
+                fault_injector=self._fault_injector,
+            ).purge_preferred_address(
+                source_memory_id=memory_id,
+                now=now,
+            )
+            self._checkpoint("relationship_privacy")
         self._primitive.redact_versions(memory_id, redacted_at=now)
         self._checkpoint("versions")
         self._primitive.delete_embedding(memory_id)
         self._checkpoint("embedding")
+
+    def _has_preferred_address_relationship(self, memory_id: str) -> bool:
+        return self._connection.execute(
+            """
+            SELECT 1 FROM relationship_events
+            WHERE event_kind='apply' AND event_type='preferred_address'
+              AND source_memory_id=? AND payload_state='active'
+            LIMIT 1
+            """,
+            (memory_id,),
+        ).fetchone() is not None
 
     def _increment_generation(
         self,

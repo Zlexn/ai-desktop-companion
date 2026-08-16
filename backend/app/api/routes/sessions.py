@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, Response, status
 from starlette.concurrency import run_in_threadpool
 
 from app.api.dependencies import (
+    get_relationship_disclosure_fence,
     get_session_deletion_coordinator,
     get_session_repository,
     get_summary_disclosure_fence,
@@ -9,6 +10,7 @@ from app.api.dependencies import (
 )
 from app.domain.schemas import CreateSessionRequest, SessionResponse
 from app.repositories.sessions import SessionRepository
+from app.services.relationship_dispatch import RelationshipDisclosureFence
 from app.services.session_deletion_coordinator import SessionDeletionCoordinator
 from app.services.summary_dispatch import (
     SummaryDisclosureFence,
@@ -48,11 +50,16 @@ async def delete_session(
     processing_fence: SummaryProcessingFence = Depends(
         get_summary_processing_fence
     ),
+    relationship_fence: RelationshipDisclosureFence = Depends(
+        get_relationship_disclosure_fence
+    ),
     disclosure_fence: SummaryDisclosureFence = Depends(
         get_summary_disclosure_fence
     ),
 ) -> Response:
+    # Lock order: SummaryProcessing -> RelationshipDisclosure -> SummaryDisclosure.
     async with processing_fence.begin_mutation():
-        async with disclosure_fence.begin_mutation():
-            await run_in_threadpool(coordinator.delete, session_id)
+        async with relationship_fence.begin_mutation():
+            async with disclosure_fence.begin_mutation():
+                await run_in_threadpool(coordinator.delete, session_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

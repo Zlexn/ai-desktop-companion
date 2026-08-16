@@ -93,6 +93,7 @@ from app.services.relationship_hooks import (
     NoOpRelationshipChangeNotifier,
     RelationshipChangeNotifierImpl,
 )
+from app.services.relationship_dispatch import RelationshipDisclosureFence
 from app.services.relationship_reconciler import RelationshipReconciler
 from app.services.relationship_scheduler import RelationshipScheduler
 from app.services.versioned_memory_commit import VersionedMemoryCommitService
@@ -206,6 +207,8 @@ def create_app(
             app.state.persona_compiler = persona_compiler
 
             # Gate C3: build one local relationship scheduler and converge at startup.
+            relationship_disclosure_fence = RelationshipDisclosureFence()
+            app.state.relationship_disclosure_fence = relationship_disclosure_fence
             long_lived_connection: sqlite3.Connection | None = None
             try:
                 with managed_connection(settings.database_url) as connection:

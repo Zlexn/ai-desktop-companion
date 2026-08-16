@@ -52,6 +52,7 @@ from app.services.relationship_hooks import (
     NoOpRelationshipChangeNotifier,
     RelationshipChangeNotifier,
 )
+from app.services.relationship_dispatch import RelationshipDisclosureFence
 from app.services.session_deletion_coordinator import (
     SessionDeletionCoordinator,
     SessionDeletionFence,
@@ -242,6 +243,16 @@ def get_relationship_change_notifier(
         request.app.state,
         "relationship_change_notifier",
         NoOpRelationshipChangeNotifier(),
+    )
+
+
+def get_relationship_disclosure_fence(
+    request: Request,
+) -> RelationshipDisclosureFence:
+    return getattr(
+        request.app.state,
+        "relationship_disclosure_fence",
+        RelationshipDisclosureFence(),
     )
 
 

@@ -8,6 +8,7 @@ from app.api.dependencies import (
     get_memory_embedding_service,
     get_memory_extraction_dispatch_fence,
     get_memory_forget_service,
+    get_relationship_disclosure_fence,
     get_summary_disclosure_fence,
     get_memory_repository,
     get_memory_source_reference_service,
@@ -80,6 +81,7 @@ from app.services.memory_extraction_dispatch import (
     MemoryExtractionDispatchFence,
 )
 from app.services.memory_forget_service import MemoryForgetResult, MemoryForgetService
+from app.services.relationship_dispatch import RelationshipDisclosureFence
 from app.services.summary_dispatch import SummaryDisclosureFence
 from app.services.memory_gate_b_contract import (
     MEMORY_ALLOWED_AUTO_TYPES,
@@ -425,13 +427,18 @@ async def forget_memory(
     memory_id: str,
     memories: MemoryRepository = Depends(get_memory_repository),
     service: MemoryForgetService = Depends(get_memory_forget_service),
+    relationship_fence: RelationshipDisclosureFence = Depends(
+        get_relationship_disclosure_fence
+    ),
     disclosure_fence: SummaryDisclosureFence = Depends(
         get_summary_disclosure_fence
     ),
 ) -> MemoryForgetResponse:
     memories.require(memory_id)
-    async with disclosure_fence.begin_mutation():
-        result = await run_in_threadpool(service.forget_memory, memory_id)
+    # Lock order: RelationshipDisclosureFence before SummaryDisclosureFence.
+    async with relationship_fence.begin_mutation():
+        async with disclosure_fence.begin_mutation():
+            result = await run_in_threadpool(service.forget_memory, memory_id)
     return _forget_response(result)
 
 
