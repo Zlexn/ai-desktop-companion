@@ -40,7 +40,7 @@ class ContextCompositionRequest:
     recent_messages: tuple[Message, ...]
     memories: tuple[StructuredMemoryContextSource, ...]
     emotion: EmotionExpressionView | None
-    relationship: None = None
+    relationship: dict[str, object] | None = None
     summaries: tuple[SummarySourceFragment, ...] = ()
 
 
@@ -53,8 +53,8 @@ class ContextCompositionResult:
     selected_recent_message_ids: tuple[str, ...]
     selected_memory_version_ids: tuple[str, ...]
     source_emotion_version: int | None
-    relationship_projection_id: None
-    relationship_projection_version: None
+    relationship_projection_id: str | None
+    relationship_projection_version: int | None
     selected_summary_ids: tuple[str, ...]
     provider_character_count: int
     max_characters: int
@@ -202,8 +202,16 @@ class ContextComposer:
             source_emotion_version=(
                 selected_emotion.version if selected_emotion is not None else None
             ),
-            relationship_projection_id=None,
-            relationship_projection_version=None,
+            relationship_projection_id=(
+                str(request.relationship["projection_id"])
+                if request.relationship is not None
+                else None
+            ),
+            relationship_projection_version=(
+                int(request.relationship["projection_version"])
+                if request.relationship is not None
+                else None
+            ),
             selected_summary_ids=tuple(
                 summary.summary_id for summary in selected_summaries
             ),
@@ -214,7 +222,21 @@ class ContextComposer:
 
     def _validate_request(self, request: ContextCompositionRequest) -> None:
         if request.relationship is not None:
-            raise ValueError("C2 relationship input must be empty")
+            # C3 allows at most one verified relationship projection object.
+            if not isinstance(request.relationship, dict):
+                raise ValueError("relationship must be a projection object or null")
+            for key in (
+                "authority",
+                "projection_id",
+                "projection_version",
+                "familiarity_bucket",
+                "preferred_address",
+                "relationship_summary_code",
+                "persona_artifact_id",
+                "projection_rule_version",
+            ):
+                if key not in request.relationship:
+                    raise ValueError("relationship projection is missing a field")
         if request.persona.payload_state is PersonaPayloadState.REDACTED:
             raise ValueError("Persona must be usable")
         if not request.persona.rendered_system_prompt:
@@ -430,11 +452,14 @@ class ContextComposer:
         messages = [
             LLMMessage(ChatRole.SYSTEM, request.persona.rendered_system_prompt or "")
         ]
-        if summaries or memories or emotion is not None:
+        if summaries or memories or emotion is not None or request.relationship is not None:
             dynamic = self._encoder.encode(
                 memories=memories,
                 emotion=emotion,
                 summaries=summaries,
+                relationships=(
+                    [request.relationship] if request.relationship is not None else []
+                ),
             )
             if len(dynamic) > self._settings.chat_dynamic_context_max_characters:
                 raise RuntimeError("dynamic context was not pre-fitted")

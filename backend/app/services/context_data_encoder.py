@@ -46,6 +46,8 @@ class ContextDataEncoder:
         emotion: EmotionExpressionView | None,
         summaries: list[SummarySourceFragment]
         | tuple[SummarySourceFragment, ...] = (),
+        relationships: list[dict[str, object]]
+        | tuple[dict[str, object], ...] = (),
     ) -> str:
         memory_data: list[dict[str, Any]] = []
         for memory in memories:
@@ -80,13 +82,14 @@ class ContextDataEncoder:
             }
             for fragment in summaries
         ]
+        relationship_data = list(relationships)
         payload = {
             "schema_version": CONTEXT_DATA_ENCODER_VERSION,
             "authority": "untrusted_reference_data_only",
             "source": "local_context",
             "memories": memory_data,
             "emotion": emotion_data,
-            "relationships": [],
+            "relationships": relationship_data,
             "summaries": summary_data,
         }
         return (

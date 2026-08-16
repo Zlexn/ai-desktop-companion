@@ -97,6 +97,7 @@ def _request(
     memories=(),
     emotion=None,
     summaries=(),
+    relationship=None,
     current_text="current user",
     persona=None,
 ) -> ContextCompositionRequest:
@@ -109,6 +110,7 @@ def _request(
         recent_messages=tuple(recent),
         memories=tuple(memories),
         emotion=emotion,
+        relationship=relationship,
         summaries=tuple(summaries),
     )
 
@@ -426,13 +428,51 @@ def test_duplicate_summary_ids_are_rejected() -> None:
         _composer().compose(_request(summaries=(summary, summary)))
 
 
-def test_c2_accepts_summaries_but_still_rejects_relationship_input() -> None:
+def test_c2_accepts_summaries_but_rejects_invalid_relationship_input() -> None:
     result = _composer().compose(_request(summaries=(_summary(1),)))
     assert result.selected_summary_ids == ("summary-1",)
 
+    # C3: a malformed relationship object is rejected.
     with pytest.raises(ValueError):
         _composer().compose(
             ContextCompositionRequest(
                 **{**_request().__dict__, "relationship": {"id": "relationship"}}
             )
         )
+
+
+def _relationship() -> dict[str, object]:
+    return {
+        "authority": "derived_relationship_projection_not_fact",
+        "projection_id": "projection-abc",
+        "projection_version": 1,
+        "familiarity_bucket": "steady",
+        "preferred_address": "小雪",
+        "relationship_summary_code": "steady",
+        "persona_artifact_id": "persona-1",
+        "projection_rule_version": "relationship-projection-v1",
+    }
+
+
+def test_c3_injects_verified_relationship_projection() -> None:
+    result = _composer().compose(
+        _request(relationship=_relationship()),
+    )
+
+    assert result.relationship_projection_id == "projection-abc"
+    assert result.relationship_projection_version == 1
+    encoded = "\n".join(
+        message.content for message in result.provider_messages
+    )
+    assert '"authority":"derived_relationship_projection_not_fact"' in encoded
+    assert '"projection_id":"projection-abc"' in encoded
+    assert '"preferred_address":"小雪"' in encoded
+
+
+def test_c3_relationship_projection_does_not_alter_persona_rules() -> None:
+    result = _composer().compose(_request(relationship=_relationship()))
+    system = result.provider_messages[0]
+    assert system.role is ChatRole.SYSTEM
+    assert "persona rules" in system.content
+    # Relationship never changes the persona/system rules message.
+    assert "derived_relationship_projection" not in system.content

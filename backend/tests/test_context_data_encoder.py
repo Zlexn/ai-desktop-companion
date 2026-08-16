@@ -154,20 +154,58 @@ def test_summary_encoding_uses_exact_fixed_public_shape() -> None:
     ) in encoded
 
 
-def test_encoder_rejects_relationship_but_accepts_typed_summaries() -> None:
+def test_encoder_accepts_single_relationship_projection() -> None:
     encoder = ContextDataEncoder()
+    relationship = {
+        "authority": "derived_relationship_projection_not_fact",
+        "projection_id": "projection-abc",
+        "projection_version": 1,
+        "familiarity_bucket": "steady",
+        "preferred_address": "小雪",
+        "relationship_summary_code": "steady",
+        "persona_artifact_id": "persona-1",
+        "projection_rule_version": "relationship-projection-v1",
+    }
     encoded = encoder.encode(
         memories=[],
         emotion=None,
-        summaries=[_summary("typed")],
+        summaries=[],
+        relationships=[relationship],
     )
-    assert '"summary_text":"typed"' in encoded
 
-    with pytest.raises(TypeError):
-        encoder.encode(
-            memories=[],
-            emotion=None,
-            summaries=[],
-            relationships=[{"content": "x"}],
-        )
+    assert '"relationships":[' in encoded
+    assert '"authority":"derived_relationship_projection_not_fact"' in encoded
+    assert '"projection_id":"projection-abc"' in encoded
+    assert '"projection_version":1' in encoded
+    assert '"familiarity_bucket":"steady"' in encoded
+    assert '"preferred_address":"小雪"' in encoded
+    assert '"relationship_summary_code":"steady"' in encoded
+    assert '"persona_artifact_id":"persona-1"' in encoded
+    assert '"projection_rule_version":"relationship-projection-v1"' in encoded
+
+
+def test_encoder_escapes_relationship_preferred_address() -> None:
+    encoder = ContextDataEncoder()
+    relationship = {
+        "authority": "derived_relationship_projection_not_fact",
+        "projection_id": "projection-esc",
+        "projection_version": 2,
+        "familiarity_bucket": "familiar",
+        "preferred_address": "<script>&alert('x')</script>",
+        "relationship_summary_code": "familiar",
+        "persona_artifact_id": "persona-1",
+        "projection_rule_version": "relationship-projection-v1",
+    }
+    encoded = encoder.encode(
+        memories=[],
+        emotion=None,
+        summaries=[],
+        relationships=[relationship],
+    )
+
+    # JSON/HTML escaping: < > & must be \u escaped.
+    assert "\\u003cscript\\u003e" in encoded
+    assert "\\u0026" in encoded
+    assert "<script>" not in encoded
+    assert "&alert" not in encoded
 

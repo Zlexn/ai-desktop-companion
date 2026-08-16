@@ -70,7 +70,7 @@
 | Gate B | 版本化自动写入 + Evidence + 冲突状态机 | ✅ 已通过 |
 | Gate C1 | Persona Artifact + Context Composer | ✅ 已通过 |
 | Gate C2 | 摘要生成/注入 + Consent + Redaction | ✅ 已通过 |
-| Gate C3 | 关系投影（Tasks 1–8 完成；Tasks 9–11 已通过最终验收，Task 12 隐私原子化与 Task 13 Persona/rule/rebuild 已实现） | 🟡 进行中 |
+| Gate C3 | 关系投影（Tasks 1–8 完成；Tasks 9–11 已通过最终验收，Task 12 隐私原子化、Task 13 Persona/rule/rebuild、Task 14 关系上下文注入已实现） | 🟡 进行中 |
 | Electron 桌面壳 | Windows 双窗口开发态桌面壳 | ⏳ 设计已批准 |
 | Live2D | 角色动画与表情 | ⏳ 待设计 |
 
@@ -171,6 +171,7 @@ $env:TTS_PROVIDER = "cosyvoice-http"
 - Gate C3 Tasks 9–11（实现与独立审阅）：`docs/automatic-memory-gate-c3-task9-fix-acceptance-2026-08-15.md`、`docs/automatic-memory-gate-c3-task10-acceptance-2026-08-15.md`、`docs/automatic-memory-gate-c3-task11-acceptance-2026-08-15.md`
 - Gate C3 Task 12（隐私原子化）：`docs/automatic-memory-gate-c3-task12-acceptance-2026-08-16.md`
 - Gate C3 Task 13（Persona 切换 / rule 升级 / rebuild）：`docs/automatic-memory-gate-c3-task13-acceptance-2026-08-16.md`
+- Gate C3 Task 14（关系上下文编码与 pre-dispatch 重验证注入）：`docs/automatic-memory-gate-c3-task14-acceptance-2026-08-16.md`
 
 ### 项目总纲
 

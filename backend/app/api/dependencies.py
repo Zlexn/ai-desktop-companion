@@ -54,6 +54,7 @@ from app.services.relationship_hooks import (
     RelationshipChangeNotifier,
 )
 from app.services.relationship_dispatch import RelationshipDisclosureFence
+from app.services.relationship_injection import RelationshipInjectionService
 from app.services.session_deletion_coordinator import (
     SessionDeletionCoordinator,
     SessionDeletionFence,
@@ -254,6 +255,18 @@ def get_relationship_disclosure_fence(
         request.app.state,
         "relationship_disclosure_fence",
         RelationshipDisclosureFence(),
+    )
+
+
+def get_relationship_injection_service(
+    settings: Settings = Depends(get_settings),
+    fence: RelationshipDisclosureFence = Depends(
+        get_relationship_disclosure_fence
+    ),
+) -> RelationshipInjectionService:
+    return RelationshipInjectionService(
+        database_url=settings.database_url,
+        fence=fence,
     )
 
 
@@ -528,6 +541,9 @@ def get_chat_service(
     summary_disclosure_fence: SummaryDisclosureFence = Depends(
         get_summary_disclosure_fence
     ),
+    relationship_injection: RelationshipInjectionService = Depends(
+        get_relationship_injection_service
+    ),
     emotion_service: EmotionService = Depends(get_emotion_service),
     emotion_updater: CompletedTurnEmotionUpdater = Depends(get_completed_turn_emotion_updater),
     emotion_analysis_scheduler: EmotionAnalysisScheduler = Depends(get_emotion_analysis_scheduler),
@@ -584,4 +600,5 @@ def get_chat_service(
         emotion_context_formatter=EmotionContextFormatter(),
         expression_plans=expression_plans,
         summary_disclosure_fence=summary_disclosure_fence,
+        relationship_injection=relationship_injection,
     )

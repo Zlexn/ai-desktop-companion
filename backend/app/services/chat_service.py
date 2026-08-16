@@ -12,7 +12,10 @@ from app.providers.base import (
     LLMResponse,
 )
 from app.repositories.chat_turns import ChatTurnRepository
-from app.repositories.context_sources import ContextSourceRepository
+from app.repositories.context_sources import (
+    ContextSourceRepository,
+    ContextSourceSnapshot,
+)
 from app.repositories.messages import MessageRepository
 from app.repositories.sessions import SessionRepository
 from app.services.context_composer import (
@@ -28,6 +31,7 @@ from app.services.memory_candidate_service import MemoryCandidateService
 from app.services.memory_job_scheduler import MemoryJobScheduler
 from app.services.persona_contract import CONTEXT_MANIFEST_VERSION
 from app.services.persona_service import PersonaService
+from app.services.relationship_injection import RelationshipInjectionService
 from app.services.session_summary_scheduler import SessionSummaryScheduler
 from app.services.summary_dispatch import SummaryDisclosureFence
 from app.services.summary_injection import SummaryInjectionService
@@ -108,6 +112,7 @@ class ChatService:
         emotion_context_formatter: EmotionContextFormatter | None = None,
         expression_plans: ExpressionPlanService | None = None,
         summary_disclosure_fence: SummaryDisclosureFence | None = None,
+        relationship_injection: RelationshipInjectionService | None = None,
     ) -> None:
         self._sessions = sessions
         self._messages = messages
@@ -130,6 +135,7 @@ class ChatService:
             if summary_disclosure_fence is not None
             else None
         )
+        self._relationship_injection = relationship_injection
 
     async def send_message(self, session_id: str, user_text: str) -> ChatReply:
         clean_text = user_text.strip()
@@ -178,21 +184,61 @@ class ChatService:
                 summary_authority=None,
             )
 
-        composition_request = ContextCompositionRequest(
-            provider_name=self._provider.provider_name,
-            session_id=session_id,
-            current_user_message_id=user_message.id,
-            current_user_text=clean_text,
-            persona=persona,
-            recent_messages=sources.recent_messages,
-            memories=sources.memories,
-            emotion=emotion_view,
-            summaries=sources.summaries,
-        )
-        composition = self._context_composer.compose(
-            composition_request,
-            max_characters=self._settings.chat_context_max_characters,
-        )
+        relationship = None
+        if self._relationship_injection is not None:
+            try:
+                relationship = await self._relationship_injection.current_relationship()
+            except Exception:
+                logger.warning(
+                    "relationship capture failed; continuing without relationship context",
+                    extra={"error_category": "relationship_capture_isolated"},
+                )
+                relationship = None
+
+        def _build_composition(
+            current_sources: ContextSourceSnapshot,
+            current_relationship: dict[str, object] | None,
+        ) -> ContextCompositionResult:
+            return self._context_composer.compose(
+                ContextCompositionRequest(
+                    provider_name=self._provider.provider_name,
+                    session_id=session_id,
+                    current_user_message_id=user_message.id,
+                    current_user_text=clean_text,
+                    persona=persona,
+                    recent_messages=current_sources.recent_messages,
+                    memories=current_sources.memories,
+                    emotion=emotion_view,
+                    summaries=current_sources.summaries,
+                    relationship=current_relationship,
+                ),
+                max_characters=self._settings.chat_context_max_characters,
+            )
+
+        composition = _build_composition(sources, relationship)
+
+        # Pre-dispatch relationship revalidation: a suppress/redaction/forget may
+        # have landed since composition. Re-read under the relationship fence and
+        # recompose with the current or neutral view so chat never leaks a
+        # forgotten sentinel or stale address. Relationship read failures are
+        # isolated: chat degrades to no relationship context and still succeeds.
+        if self._relationship_injection is not None and relationship is not None:
+            try:
+                current_relationship = (
+                    await self._relationship_injection.revalidate_or_neutral(
+                        relationship=relationship,
+                    )
+                )
+            except Exception:
+                logger.warning(
+                    "relationship revalidation failed; dropping relationship context",
+                    extra={"error_category": "relationship_revalidation_isolated"},
+                )
+                current_relationship = None
+            if current_relationship != relationship:
+                relationship = current_relationship
+                composition = _build_composition(sources, relationship)
+
         if self._summary_injection is not None and sources.summaries:
             async with self._summary_injection.revalidate_for_dispatch(
                 session_id=session_id,
@@ -201,20 +247,7 @@ class ChatService:
                 sources=sources,
             ) as current_sources:
                 if current_sources != sources:
-                    composition = self._context_composer.compose(
-                        ContextCompositionRequest(
-                            provider_name=self._provider.provider_name,
-                            session_id=session_id,
-                            current_user_message_id=user_message.id,
-                            current_user_text=clean_text,
-                            persona=persona,
-                            recent_messages=current_sources.recent_messages,
-                            memories=current_sources.memories,
-                            emotion=emotion_view,
-                            summaries=current_sources.summaries,
-                        ),
-                        max_characters=self._settings.chat_context_max_characters,
-                    )
+                    composition = _build_composition(current_sources, relationship)
                 response = await self._generate(composition)
         else:
             response = await self._generate(composition)
