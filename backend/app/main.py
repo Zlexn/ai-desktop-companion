@@ -16,6 +16,7 @@ from app.api.routes import (
     message_expression,
     message_speech,
     persona,
+    relationships,
     sessions,
     summaries,
 )
@@ -763,6 +764,7 @@ def create_app(
     app.include_router(emotion.router)
     app.include_router(persona.router)
     app.include_router(summaries.router)
+    app.include_router(relationships.router)
 
     @app.exception_handler(AppError)
     async def app_error_handler(_request: Request, exc: AppError) -> JSONResponse:

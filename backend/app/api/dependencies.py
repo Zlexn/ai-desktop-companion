@@ -54,6 +54,7 @@ from app.services.relationship_hooks import (
     RelationshipChangeNotifier,
 )
 from app.services.relationship_dispatch import RelationshipDisclosureFence
+from app.services.relationship_api import RelationshipApiService
 from app.services.relationship_injection import RelationshipInjectionService
 from app.services.session_deletion_coordinator import (
     SessionDeletionCoordinator,
@@ -268,6 +269,12 @@ def get_relationship_injection_service(
         database_url=settings.database_url,
         fence=fence,
     )
+
+
+def get_relationship_api_service(
+    connection: sqlite3.Connection = Depends(get_connection),
+) -> RelationshipApiService:
+    return RelationshipApiService(connection)
 
 
 def get_versioned_memory_mutation_service(

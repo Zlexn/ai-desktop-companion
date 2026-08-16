@@ -793,3 +793,131 @@ class EmotionAnalysisAuditResponse(BaseModel):
     elapsed_ms: int
     reason_code: str
     created_at: datetime
+
+
+class RelationshipCapabilitiesResponse(BaseModel):
+    local_only: Literal[True] = True
+    remote_extraction: Literal[False] = False
+    remote_consent_exists: Literal[False] = False
+    projection: Literal[True] = True
+
+
+class RelationshipProjectionResponse(BaseModel):
+    available: bool
+    projection_id: str | None = None
+    projection_version: int | None = None
+    familiarity_bucket: str | None = None
+    preferred_address: str | None = None
+    relationship_summary_code: str | None = None
+    persona_artifact_id: str | None = None
+    projection_rule_version: str | None = None
+    contributing_event_count: int | None = None
+
+
+class RelationshipAuthorityViewResponse(BaseModel):
+    decision_id: str | None = None
+    generation: int
+    authority_epoch: int
+    suppressed: bool
+
+
+class RelationshipEventResponse(BaseModel):
+    id: str
+    event_kind: str
+    event_type: str
+    subject_code: str
+    payload_state: str
+    address: str | None = None
+    source_memory_id: str | None = None
+    revokes_event_id: str | None = None
+    rule_version: str
+    persona_artifact_id: str
+    observed_at: datetime
+    created_at: datetime
+    authority: RelationshipAuthorityViewResponse
+
+
+class RelationshipEventPageResponse(BaseModel):
+    items: list[RelationshipEventResponse]
+    next_cursor: str | None = None
+
+
+class RelationshipJobResponse(BaseModel):
+    id: str
+    status: str
+    outcome: str | None = None
+    source_memory_id: str | None = None
+    captured_event_type: str
+    captured_subject_code: str
+    captured_record_head_version: int
+    captured_record_generation: int
+    captured_authority_generation: int
+    captured_authority_epoch: int
+    attempt_count: int
+    reason_code: str | None = None
+    error_category: str | None = None
+    relationship_rule_version: str
+    persona_artifact_id: str
+    created_at: datetime
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+
+
+class RelationshipJobPageResponse(BaseModel):
+    items: list[RelationshipJobResponse]
+    next_cursor: str | None = None
+
+
+class RelationshipAuditResponse(BaseModel):
+    id: str
+    job_id: str
+    outcome: str
+    reason_code: str
+    attempt_count: int
+    created_at: datetime
+
+
+class RelationshipAuditPageResponse(BaseModel):
+    items: list[RelationshipAuditResponse]
+    next_cursor: str | None = None
+
+
+class RelationshipAuthorityExpectation(BaseModel):
+    expected_decision_id: str | None = None
+    expected_decision_generation: int = Field(ge=0)
+    expected_authority_epoch: int = Field(ge=0)
+
+
+class RelationshipSuppressRequest(RelationshipAuthorityExpectation):
+    model_config = ConfigDict(extra="forbid")
+
+
+class RelationshipRedactRequest(RelationshipAuthorityExpectation):
+    model_config = ConfigDict(extra="forbid")
+    confirm_irreversible: Literal[True]
+
+
+class RelationshipReenableRequest(RelationshipAuthorityExpectation):
+    model_config = ConfigDict(extra="forbid")
+
+
+class RelationshipReconcileRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_projection_version: int | None = Field(default=None, ge=1)
+
+
+class RelationshipAuthorityResponse(BaseModel):
+    source_memory_id: str
+    event_type: str
+    subject_code: str
+    decision_id: str | None = None
+    generation: int
+    action: str | None = None
+    authority_epoch: int
+    suppressed: bool
+
+
+class RelationshipMutationResponse(BaseModel):
+    outcome: str
+    authority: RelationshipAuthorityResponse
+    projection: RelationshipProjectionResponse
