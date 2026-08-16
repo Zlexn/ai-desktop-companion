@@ -23,10 +23,19 @@ from app.services.relationship_rules import RelationshipRuleSet
 class RelationshipReconciler:
     """Runs transactionally revalidated local relationship reconciliation jobs."""
 
-    def __init__(self, connection: sqlite3.Connection, *, max_attempts: int = 3) -> None:
+    def __init__(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        max_attempts: int = 3,
+        rule_version: str = RELATIONSHIP_RULE_VERSION,
+    ) -> None:
         if type(max_attempts) is not int or max_attempts < 1:
             raise ValueError("relationship max attempts must be positive")
+        if not isinstance(rule_version, str) or not rule_version:
+            raise ValueError("relationship rule version must be non-empty")
         self._connection = connection
+        self._rule_version = rule_version
         self._ledger = RelationshipLedgerRepository(connection)
         self._sources = RelationshipSourceRepository(connection)
         self._authority = RelationshipAuthorityService(
@@ -244,10 +253,17 @@ class RelationshipReconciler:
                 if (
                     event.event_kind is RelationshipEventKind.APPLY
                     and event.source_memory_id == source.source_memory_id
-                    and event.source_memory_version_id
-                    != source.source_memory_version_id
                     and event.id not in revoked_ids
+                    and (
+                        event.source_memory_version_id
+                        != source.source_memory_version_id
+                        or event.rule_version != self._rule_version
+                    )
                 ):
+                    # Either the source version changed (old-version revoke) or
+                    # the apply was created under a different rule version
+                    # (rule migration revoke). Both are ordinary revokes; rule
+                    # migration is metadata-only and never a new event type.
                     self._ledger.append_revoke(
                         apply_event_id=event.id,
                         created_at=now,
@@ -401,7 +417,7 @@ class RelationshipReconciler:
         source = self._sources.get_current(
             memory_id,
             authority=authority,
-            relationship_rule_version=RELATIONSHIP_RULE_VERSION,
+            relationship_rule_version=self._rule_version,
         )
         return None if source is None else (authority, source)
 

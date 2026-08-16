@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from datetime import UTC, datetime
 import sqlite3
 
 from fastapi import Depends, Request
@@ -425,10 +426,37 @@ def get_persona_service(
     request: Request,
     connection: sqlite3.Connection = Depends(get_connection),
 ) -> PersonaService:
+    settings = get_settings()
+
+    def recompute_relationship_projection() -> None:
+        """After a Persona switch, recompute the relationship projection with
+        the newly active Persona artifact (design §11). Best-effort and
+        non-blocking: a failure leaves the prior projection until the next
+        startup scan. This does NOT reserve new reconcile jobs (source facts
+        are unchanged) and must not collide with existing job identities."""
+        try:
+            from app.services.relationship_projector import RelationshipProjector
+
+            with managed_connection(settings.database_url) as fresh_connection:
+                from app.repositories.personas import PersonaRepository
+
+                state = PersonaRepository(fresh_connection).current_state()
+                if state is None:
+                    return
+                projector = RelationshipProjector(fresh_connection)
+                with projector.write_transaction():
+                    projector.project(
+                        persona_artifact_id=state.artifact_id,
+                        computed_at=datetime.now(UTC),
+                    )
+        except Exception:
+            return
+
     return PersonaService(
         PersonaRepository(connection),
         compiler=request.app.state.persona_compiler,
         bootstrap_config={},
+        after_pointer_switch=recompute_relationship_projection,
     )
 
 

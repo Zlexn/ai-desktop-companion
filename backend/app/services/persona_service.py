@@ -235,6 +235,8 @@ class PersonaService:
                 reason_code="user_activated_persona",
                 created_at=now,
             )
+            if self._after_pointer_switch is not None:
+                self._after_pointer_switch()
             return PersonaActivationResult(artifact, active, "activated")
 
     def redact(
