@@ -29,6 +29,7 @@ from app.domain.models import (
     MemoryVersionSourceKind,
 )
 from app.repositories.memories import MemoryRepository
+from app.repositories.relationship_ledger import RelationshipLedgerRepository
 from app.repositories.sqlite import metadata_to_json
 from app.repositories.versioned_memories import VersionedMemoryRepository
 from app.services.memory_commit_policy import canonicalize_memory_v1
@@ -36,6 +37,10 @@ from app.services.memory_forget_service import MemoryForgetService
 from app.services.memory_governor import memory_payload_policy_reason
 from app.services.memory_source_reference import MemorySourceReferenceService
 from app.services.relationship_contract import canonical_relationship_subject_code
+from app.services.relationship_hooks import (
+    NoOpRelationshipChangeNotifier,
+    RelationshipChangeNotifier,
+)
 from app.services.versioned_memory_mutation import VersionedMemoryMutationPrimitive
 
 
@@ -73,6 +78,7 @@ class MemoryConflictResolutionService:
         forget: MemoryForgetService,
         source_references: MemorySourceReferenceService,
         fault_injector: Callable[[str], None] | None = None,
+        relationship_notifier: RelationshipChangeNotifier | None = None,
     ) -> None:
         self._connection = connection
         self._versioned = versioned
@@ -81,6 +87,17 @@ class MemoryConflictResolutionService:
         self._source_references = source_references
         self._primitive = VersionedMemoryMutationPrimitive(connection)
         self._fault_injector = fault_injector
+        self._relationship_notifier = (
+            relationship_notifier or NoOpRelationshipChangeNotifier()
+        )
+
+    def _notify_relationship_change(self, memory_ids: tuple[str, ...]) -> None:
+        """Best-effort post-commit notification; never raises into callers."""
+        try:
+            self._relationship_notifier.schedule(memory_ids)
+        except Exception:
+            # Notification is best-effort; startup recovery guarantees convergence.
+            pass
 
     def resolve(
         self,
@@ -130,10 +147,14 @@ class MemoryConflictResolutionService:
                     confidence = selected[0].confidence
                     canonical_subject_code = selected_version.canonical_subject_code
                 else:
-                    content, memory_type, subject, importance, confidence = (
-                        self._validated_replacement(payload)
-                    )
-                    canonical_subject_code = payload.canonical_subject_code
+                    (
+                        content,
+                        memory_type,
+                        subject,
+                        importance,
+                        confidence,
+                        canonical_subject_code,
+                    ) = self._validated_replacement(payload)
                 resolved_memory_id = self._create_resolved_identity(
                     content=content,
                     memory_type=memory_type,
@@ -165,6 +186,14 @@ class MemoryConflictResolutionService:
             if cursor.rowcount != 1:
                 raise MemoryConflictStaleError()
             self._checkpoint("conflict_closed")
+            if resolved_memory_id is not None:
+                RelationshipLedgerRepository(self._connection).append_conflict_lineage(
+                    resolved_memory_id=resolved_memory_id,
+                    contributing_memory_ids=(left_id, right_id),
+                    conflict_id=conflict_id,
+                    resolution_kind=payload.kind,
+                )
+                self._checkpoint("lineage")
             audit_memory_id = resolved_memory_id or left_id
             self._insert_audit(
                 event_type=MemoryAuditEventType.CONFLICT_RESOLVED,
@@ -185,7 +214,18 @@ class MemoryConflictResolutionService:
                 if resolved_memory_id is not None
                 else None
             )
-            return ConflictResolutionResult(conflict=conflict, resolved_memory=resolved)
+            result = ConflictResolutionResult(
+                conflict=conflict,
+                resolved_memory=resolved,
+            )
+        # Post-commit notification: schedule both old sides and the resolved
+        # identity (when created) for relationship reconciliation. dismiss_both
+        # schedules only the archived sides so their old applies get revoked.
+        affected: list[str] = [left_id, right_id]
+        if resolved_memory_id is not None:
+            affected.append(resolved_memory_id)
+        self._notify_relationship_change(tuple(dict.fromkeys(affected)))
+        return result
 
     def undo_latest_auto(self, memory_id: str) -> MemoryUndoResult:
         self._memories.require(memory_id)
@@ -591,7 +631,14 @@ class MemoryConflictResolutionService:
             subject=subject,
             content=content,
         )
-        return content, payload.memory_type, subject, payload.importance, payload.confidence
+        return (
+            content,
+            payload.memory_type,
+            subject,
+            payload.importance,
+            payload.confidence,
+            payload.canonical_subject_code,
+        )
 
     def _memory_type_generation(self, memory_type: MemoryType, *, now: datetime) -> int:
         row = self._connection.execute(

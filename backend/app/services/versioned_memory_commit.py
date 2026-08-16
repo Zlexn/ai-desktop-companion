@@ -48,6 +48,10 @@ from app.services.memory_gate_b_contract import (
 )
 from app.services.memory_governor import MEMORY_GOVERNOR_VERSION
 from app.services.memory_source_reference import MemorySourceReferenceService
+from app.services.relationship_hooks import (
+    NoOpRelationshipChangeNotifier,
+    RelationshipChangeNotifier,
+)
 
 
 @dataclass(frozen=True)
@@ -118,12 +122,46 @@ class VersionedMemoryCommitService:
         policy: MemoryCommitPolicy,
         source_references: MemorySourceReferenceService,
         semantic_retries: int = MEMORY_COMMIT_SEMANTIC_RETRIES_DEFAULT,
+        relationship_notifier: RelationshipChangeNotifier | None = None,
     ) -> None:
         self._connection = connection
         self._versioned = versioned
         self._policy = policy
         self._source_references = source_references
         self._semantic_retries = semantic_retries
+        self._relationship_notifier = (
+            relationship_notifier or NoOpRelationshipChangeNotifier()
+        )
+
+    def _notify_relationship_change(
+        self,
+        memory_ids: tuple[str, ...],
+    ) -> None:
+        """Best-effort post-commit notification; never raises into callers."""
+        try:
+            self._relationship_notifier.schedule(memory_ids)
+        except Exception:
+            # Notification is best-effort; startup recovery guarantees convergence.
+            pass
+
+    def _notify_result_identities(self, result: VersionedMemoryCommitResult) -> None:
+        affected: list[str] = []
+        if result.memory_id is not None:
+            affected.append(result.memory_id)
+        if result.conflict_id is not None:
+            # Automatic conflict recording must enqueue both newly conflicted
+            # identities: projection validation already excludes them and
+            # recovery appends their revokes.
+            row = self._connection.execute(
+                "SELECT left_memory_id, right_memory_id FROM memory_conflicts "
+                "WHERE conflict_id=?",
+                (result.conflict_id,),
+            ).fetchone()
+            if row is not None:
+                affected.append(str(row["left_memory_id"]))
+                affected.append(str(row["right_memory_id"]))
+        if affected:
+            self._notify_relationship_change(tuple(dict.fromkeys(affected)))
 
     def commit_one(
         self,
@@ -133,12 +171,14 @@ class VersionedMemoryCommitService:
         operation_id = _op_id(request.job_id, fingerprint)
         for attempt in range(self._semantic_retries + 1):
             try:
-                return self._commit_attempt(
+                result = self._commit_attempt(
                     request,
                     fingerprint=fingerprint,
                     operation_id=operation_id,
                     semantic_attempts=attempt + 1,
                 )
+                self._notify_result_identities(result)
+                return result
             except sqlite3.OperationalError as exc:
                 if not self._retryable(exc) or attempt >= self._semantic_retries:
                     raise

@@ -234,8 +234,9 @@ CREATE TABLE IF NOT EXISTS relationship_reconcile_jobs (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_relationship_job_attempt_identity
 ON relationship_reconcile_jobs(
     scope_id, source_memory_version_id, relationship_rule_version,
-    captured_authority_generation, captured_authority_epoch,
-    captured_inherited_authority_fingerprint
+    captured_record_head_version, captured_record_generation,
+    captured_record_state, captured_authority_generation,
+    captured_authority_epoch, captured_inherited_authority_fingerprint
 );
 
 CREATE INDEX IF NOT EXISTS idx_relationship_jobs_status_created
@@ -630,6 +631,37 @@ def _replace_memory_version_trigger(connection: sqlite3.Connection) -> None:
     _execute_script(connection, _MEMORY_VERSION_TRIGGER_SQL)
 
 
+def _replace_job_attempt_identity_index(connection: sqlite3.Connection) -> None:
+    """Upgrade the job attempt identity to include the captured source snapshot.
+
+    Older C3 databases created ``idx_relationship_job_attempt_identity`` without
+    the captured record head/state/generation columns, so archive/delete/redaction
+    state changes could not reserve a fresh reconcile job. DROP and recreate the
+    index when the legacy definition is present.
+    """
+    row = connection.execute(
+        "SELECT sql FROM sqlite_master WHERE type='index' "
+        "AND name='idx_relationship_job_attempt_identity'"
+    ).fetchone()
+    if row is not None and "captured_record_generation" in str(row["sql"]):
+        return
+    connection.execute(
+        "DROP INDEX IF EXISTS idx_relationship_job_attempt_identity"
+    )
+    _execute_script(
+        connection,
+        """
+CREATE UNIQUE INDEX idx_relationship_job_attempt_identity
+ON relationship_reconcile_jobs(
+    scope_id, source_memory_version_id, relationship_rule_version,
+    captured_record_head_version, captured_record_generation,
+    captured_record_state, captured_authority_generation,
+    captured_authority_epoch, captured_inherited_authority_fingerprint
+);
+""",
+    )
+
+
 def _scrub_experimental_projection_text(connection: sqlite3.Connection) -> None:
     columns = _columns(connection, "relationship_projections")
     experimental_columns = tuple(
@@ -718,6 +750,7 @@ def migrate_gate_c3(
     _add_memory_subject_column(connection)
     _replace_memory_version_trigger(connection)
     _execute_script(connection, _C3_SCHEMA_SQL)
+    _replace_job_attempt_identity_index(connection)
     if connection.execute(
         "SELECT 1 FROM relationship_authority_epoch WHERE scope_id='default'"
     ).fetchone() is None:

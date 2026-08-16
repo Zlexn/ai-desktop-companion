@@ -55,6 +55,12 @@ class CorruptRelationshipEventError(ValueError):
     pass
 
 
+class RelationshipJobIdentityMismatchError(ValueError):
+    """Raised when an existing reconcile job's captured identity semantics no
+    longer match the current source snapshot. This is an invariant violation
+    (fail-closed) and must not be silently swallowed by callers."""
+
+
 @dataclass(frozen=True)
 class RelationshipAuthorityDecisionRecord:
     id: str
@@ -596,6 +602,9 @@ class RelationshipLedgerRepository:
             SELECT * FROM relationship_reconcile_jobs
             WHERE scope_id=? AND source_memory_version_id=?
               AND relationship_rule_version=?
+              AND captured_record_head_version=?
+              AND captured_record_generation=?
+              AND captured_record_state=?
               AND captured_authority_generation=?
               AND captured_authority_epoch=?
               AND captured_inherited_authority_fingerprint=?
@@ -604,6 +613,9 @@ class RelationshipLedgerRepository:
                 source.scope_id,
                 source.source_memory_version_id,
                 source.relationship_rule_version,
+                source.record_head_version,
+                source.record_generation,
+                source.record_state.value,
                 source.effective_authority_generation,
                 source.authority_epoch,
                 source.inherited_authority_fingerprint,
@@ -623,7 +635,9 @@ class RelationshipLedgerRepository:
             != source.effective_authority_decision_id
             or job.persona_artifact_id != persona_artifact_id
         ):
-            raise ValueError("existing relationship job identity has different semantics")
+            raise RelationshipJobIdentityMismatchError(
+                "existing relationship job identity has different semantics"
+            )
         return job
 
     def job(self, job_id: str) -> RelationshipReconcileJob | None:

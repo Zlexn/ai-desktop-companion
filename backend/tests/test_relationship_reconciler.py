@@ -11,9 +11,13 @@ from app.domain.relationship import (
     RelationshipReconcileJobStatus,
     RelationshipReconcileOutcome,
 )
-from app.repositories.relationship_ledger import RelationshipLedgerRepository
+from app.repositories.relationship_ledger import (
+    RelationshipJobIdentityMismatchError,
+    RelationshipLedgerRepository,
+)
 from app.services.relationship_authority import RelationshipAuthorityService
 from app.services.relationship_reconciler import RelationshipReconciler
+from app.services.relationship_scheduler import RelationshipScheduler
 
 from test_relationship_projector import (
     _BASE_TIME,
@@ -315,3 +319,31 @@ def test_fault_rolls_back_event_projection_audit_and_job_transition(tmp_path: Pa
         assert connection.execute(
             "SELECT COUNT(*) FROM relationship_job_audits"
         ).fetchone()[0] == 0
+
+
+def test_schedule_surfaces_identity_mismatch_instead_of_silently_skipping(
+    tmp_path: Path,
+) -> None:
+    """I-2: a captured-identity mismatch (invariant violation) must fail closed
+    through the scheduler rather than being silently swallowed as an ordinary
+    unclassifiable source."""
+    with _database(tmp_path, "identity-mismatch.db") as connection:
+        _seed_source(connection)
+        _insert_persona(connection, "persona-2", version=2)
+        # Reserve once with persona-1 (snapshot identity captured).
+        reconciler = RelationshipReconciler(connection)
+        first = reconciler.reserve(
+            memory_id="memory-1",
+            persona_artifact_id="persona-1",
+            created_at=_BASE_TIME,
+        )
+        # The unique identity index omits persona_artifact_id, so re-reserving
+        # the same source snapshot under a different persona collides with the
+        # existing job and must raise RelationshipJobIdentityMismatchError.
+        scheduler = RelationshipScheduler(
+            RelationshipReconciler(connection),
+            persona_artifact_id="persona-2",
+        )
+        with pytest.raises(RelationshipJobIdentityMismatchError):
+            scheduler.schedule(("memory-1",), created_at=_BASE_TIME + timedelta(days=1))
+        assert first.id is not None

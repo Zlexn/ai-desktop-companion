@@ -48,6 +48,10 @@ from app.services.memory_embedding_service import (
 )
 from app.services.memory_forget_service import MemoryForgetService
 from app.services.memory_conflict_resolution import MemoryConflictResolutionService
+from app.services.relationship_hooks import (
+    NoOpRelationshipChangeNotifier,
+    RelationshipChangeNotifier,
+)
 from app.services.session_deletion_coordinator import (
     SessionDeletionCoordinator,
     SessionDeletionFence,
@@ -231,10 +235,23 @@ def get_memory_job_scheduler(request: Request) -> MemoryJobScheduler:
     return request.app.state.memory_job_scheduler
 
 
+def get_relationship_change_notifier(
+    request: Request,
+) -> RelationshipChangeNotifier:
+    return getattr(
+        request.app.state,
+        "relationship_change_notifier",
+        NoOpRelationshipChangeNotifier(),
+    )
+
+
 def get_versioned_memory_mutation_service(
     connection: sqlite3.Connection = Depends(get_connection),
     source_references: MemorySourceReferenceService = Depends(
         get_memory_source_reference_service
+    ),
+    relationship_notifier: RelationshipChangeNotifier = Depends(
+        get_relationship_change_notifier
     ),
 ) -> VersionedMemoryMutationService:
     return VersionedMemoryMutationService(
@@ -245,6 +262,7 @@ def get_versioned_memory_mutation_service(
         ),
         versioned=VersionedMemoryRepository(connection),
         source_references=source_references,
+        relationship_notifier=relationship_notifier,
     )
 
 
@@ -323,6 +341,9 @@ def get_memory_conflict_resolution_service(
     source_references: MemorySourceReferenceService = Depends(
         get_memory_source_reference_service
     ),
+    relationship_notifier: RelationshipChangeNotifier = Depends(
+        get_relationship_change_notifier
+    ),
 ) -> MemoryConflictResolutionService:
     versioned = VersionedMemoryRepository(connection)
     memories = MemoryRepository(
@@ -340,6 +361,7 @@ def get_memory_conflict_resolution_service(
         memories=memories,
         forget=forget,
         source_references=source_references,
+        relationship_notifier=relationship_notifier,
     )
 
 

@@ -36,6 +36,14 @@ class RelationshipReconciler:
         self._projector = RelationshipProjector(connection)
         self.max_attempts = max_attempts
 
+    def close(self) -> None:
+        """Release the underlying connection owned by this long-lived
+        scheduler. Idempotent and safe to call from lifespan shutdown."""
+        try:
+            self._connection.close()
+        except Exception:
+            pass
+
     def reserve(
         self,
         *,
@@ -78,6 +86,42 @@ class RelationshipReconciler:
             """
         ).fetchall()
         return tuple(row["memory_id"] for row in rows)
+
+    def startup_scan_memory_ids(self) -> tuple[str, ...]:
+        """Deterministic convergence scan set for startup recovery.
+
+        Returns every memory identity that could need reconciliation:
+
+        - every current classified head (may become newly eligible);
+        - every effective apply source (its source may now be stale/ineligible,
+          so a revoke may be required);
+        - every lineage contributor/resolved identity (authority inheritance may
+          need revalidation after recovery).
+
+        The set is sorted and deduplicated so startup converges exactly once
+        with a stable reservation order.
+        """
+        memory_ids: set[str] = set(self.classified_current_memory_ids())
+        rows = self._connection.execute(
+            """
+            SELECT DISTINCT event.source_memory_id
+            FROM relationship_events AS event
+            WHERE event.event_kind = 'apply'
+              AND event.id NOT IN (
+                  SELECT revokes_event_id FROM relationship_events
+                  WHERE revokes_event_id IS NOT NULL
+              )
+            """
+        ).fetchall()
+        memory_ids.update(str(row["source_memory_id"]) for row in rows)
+        rows = self._connection.execute(
+            "SELECT resolved_memory_id, contributing_memory_id "
+            "FROM relationship_memory_lineage"
+        ).fetchall()
+        for row in rows:
+            memory_ids.add(str(row["resolved_memory_id"]))
+            memory_ids.add(str(row["contributing_memory_id"]))
+        return tuple(sorted(memory_ids))
 
     def recoverable_jobs(self) -> tuple[RelationshipReconcileJob, ...]:
         return self._ledger.jobs(

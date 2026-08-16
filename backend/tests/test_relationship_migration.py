@@ -39,6 +39,47 @@ def test_gate_c3_migration_requires_caller_owned_transaction(tmp_path: Path) -> 
         connection.close()
 
 
+def test_migration_upgrades_legacy_job_attempt_identity_index(tmp_path: Path) -> None:
+    """A legacy job attempt identity index without the captured source snapshot
+    must be dropped and recreated with the record head/state/generation columns."""
+    database_url = f"sqlite:///{tmp_path / 'legacy-index.db'}"
+    with managed_connection(database_url) as connection:
+        # Replace the current index with a legacy-shaped one, then re-run the
+        # C3 migration to prove the upgrade path rebuilds it with the snapshot.
+        connection.execute(
+            "DROP INDEX idx_relationship_job_attempt_identity"
+        )
+        connection.execute(
+            "CREATE UNIQUE INDEX idx_relationship_job_attempt_identity "
+            "ON relationship_reconcile_jobs("
+            "scope_id, source_memory_version_id, relationship_rule_version, "
+            "captured_authority_generation, captured_authority_epoch, "
+            "captured_inherited_authority_fingerprint)"
+        )
+        connection.commit()
+        legacy = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type='index' "
+            "AND name='idx_relationship_job_attempt_identity'"
+        ).fetchone()
+        assert legacy is not None and "captured_record_generation" not in str(legacy["sql"])
+
+        connection.execute("BEGIN")
+        migrate_gate_c3(connection)
+        connection.commit()
+
+        upgraded = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type='index' "
+            "AND name='idx_relationship_job_attempt_identity'"
+        ).fetchone()
+        assert upgraded is not None
+        for column in (
+            "captured_record_head_version",
+            "captured_record_generation",
+            "captured_record_state",
+        ):
+            assert column in str(upgraded["sql"])
+
+
 def test_fresh_database_contains_transactional_gate_c3_schema(tmp_path: Path) -> None:
     database_url = f"sqlite:///{tmp_path / 'fresh-c3.db'}"
 

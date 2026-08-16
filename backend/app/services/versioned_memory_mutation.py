@@ -28,6 +28,10 @@ from app.services.memory_gate_b_contract import MEMORY_CANONICALIZATION_VERSION
 from app.services.memory_commit_policy import canonicalize_memory_v1
 from app.services.memory_source_reference import MemorySourceReferenceService
 from app.services.relationship_contract import canonical_relationship_subject_code
+from app.services.relationship_hooks import (
+    NoOpRelationshipChangeNotifier,
+    RelationshipChangeNotifier,
+)
 
 
 _MANUAL_WRITER_POLICY_VERSION = "memory-manual-write-v1"
@@ -534,12 +538,32 @@ class VersionedMemoryMutationService:
         memories: MemoryRepository,
         versioned: VersionedMemoryRepository,
         source_references: MemorySourceReferenceService | None = None,
+        relationship_notifier: RelationshipChangeNotifier | None = None,
     ) -> None:
         self._connection = connection
         self._memories = memories
         self._versioned = versioned
         self._source_references = source_references
+        self._relationship_notifier = (
+            relationship_notifier or NoOpRelationshipChangeNotifier()
+        )
         self.primitive = VersionedMemoryMutationPrimitive(connection)
+
+    def _notify_relationship_change(self, memory_ids: tuple[str, ...]) -> None:
+        """Best-effort post-commit notification; never raises into callers.
+
+        This is a non-privacy boundary: a failed callback must not affect the
+        already-committed Gate B mutation. Startup recovery guarantees eventual
+        reconciliation convergence independently of this notification.
+        """
+        try:
+            self._relationship_notifier.schedule(memory_ids)
+        except Exception:
+            # Notification is best-effort; convergence relies on startup scan.
+            pass
+
+    def _notify_relationship_change_for_memory(self, memory_id: str) -> None:
+        self._notify_relationship_change((memory_id,))
 
     def create_manual(
         self,
@@ -610,6 +634,7 @@ class VersionedMemoryMutationService:
                 created_at=now,
             )
             memory = self._memories.require(memory_id)
+        self._notify_relationship_change_for_memory(memory_id)
         return memory, conflicts
 
     def update(
@@ -734,6 +759,7 @@ class VersionedMemoryMutationService:
                 created_at=now,
             )
             memory = self._memories.require(memory_id)
+        self._notify_relationship_change_for_memory(memory_id)
         return memory, conflicts
 
     def confirm_candidate(
@@ -775,42 +801,47 @@ class VersionedMemoryMutationService:
                     operation=MemoryAuditOperation.CONFIRM_CANDIDATE,
                     created_at=now,
                 )
-                return current, conflicts
-            now = _now()
-            next_metadata = dict(current.metadata)
-            next_metadata["confirmed_at"] = now.isoformat()
-            self.primitive.update_projection(
-                memory_id=memory_id,
-                content=current.content,
-                memory_type=current.memory_type,
-                importance=current.importance,
-                confidence=current.confidence,
-                status=MemoryStatus.ACTIVE,
-                metadata=next_metadata,
-                updated_at=now,
-            )
-            self.primitive.insert_root(
-                memory_id=memory_id,
-                content=current.content,
-                memory_type=current.memory_type,
-                importance=current.importance,
-                confidence=current.confidence,
-                source_kind=MemoryVersionSourceKind.CANDIDATE,
-                source_session_id=current.source_session_id,
-                source_session_reference_hash=self._session_reference(
-                    current.source_session_id
-                ),
-                created_at=now,
-                canonical_key_hash=(
-                    canonical.canonical_key_hash if canonical is not None else None
-                ),
-                subject_key_hash=(
-                    canonical.subject_key_hash if canonical is not None else None
-                ),
-                canonical_subject_code=canonical_subject_code,
-            )
-            memory = self._memories.require(memory_id)
-        return memory, []
+                result = (current, conflicts)
+            else:
+                now = _now()
+                next_metadata = dict(current.metadata)
+                next_metadata["confirmed_at"] = now.isoformat()
+                self.primitive.update_projection(
+                    memory_id=memory_id,
+                    content=current.content,
+                    memory_type=current.memory_type,
+                    importance=current.importance,
+                    confidence=current.confidence,
+                    status=MemoryStatus.ACTIVE,
+                    metadata=next_metadata,
+                    updated_at=now,
+                )
+                self.primitive.insert_root(
+                    memory_id=memory_id,
+                    content=current.content,
+                    memory_type=current.memory_type,
+                    importance=current.importance,
+                    confidence=current.confidence,
+                    source_kind=MemoryVersionSourceKind.CANDIDATE,
+                    source_session_id=current.source_session_id,
+                    source_session_reference_hash=self._session_reference(
+                        current.source_session_id
+                    ),
+                    created_at=now,
+                    canonical_key_hash=(
+                        canonical.canonical_key_hash if canonical is not None else None
+                    ),
+                    subject_key_hash=(
+                        canonical.subject_key_hash if canonical is not None else None
+                    ),
+                    canonical_subject_code=canonical_subject_code,
+                )
+                memory = self._memories.require(memory_id)
+                result = (memory, [])
+        # Post-commit notification; the conflicts branch also schedules so the
+        # projection is recomputed against the now-conflicted candidate.
+        self._notify_relationship_change_for_memory(memory_id)
+        return result
 
     def archive(self, memory_id: str) -> bool:
         with self._versioned.write_transaction():
@@ -878,6 +909,7 @@ class VersionedMemoryMutationService:
             ):
                 raise RuntimeError("stale memory head")
             self.primitive.delete_embedding(memory_id)
+        self._notify_relationship_change_for_memory(memory_id)
         return True
 
     def _session_reference(self, session_id: str | None) -> str | None:

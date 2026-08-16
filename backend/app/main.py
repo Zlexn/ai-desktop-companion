@@ -1,6 +1,7 @@
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
+import sqlite3
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -88,6 +89,12 @@ from app.services.memory_write_dispatch import (
 from app.services.persona_compiler import PersonaCompiler
 from app.services.persona_service import PersonaService
 from app.services.prompt_renderer import default_prompt_renderer
+from app.services.relationship_hooks import (
+    NoOpRelationshipChangeNotifier,
+    RelationshipChangeNotifierImpl,
+)
+from app.services.relationship_reconciler import RelationshipReconciler
+from app.services.relationship_scheduler import RelationshipScheduler
 from app.services.versioned_memory_commit import VersionedMemoryCommitService
 from app.services.session_deletion_coordinator import SessionDeletionFence
 from app.services.session_summary_provider import (
@@ -112,6 +119,19 @@ from app.services.summary_job_service import SummaryJobService
 
 def validate_memory_automation_capability(settings: Settings) -> None:
     del settings
+
+
+def _connect_database(database_url: str) -> sqlite3.Connection:
+    """Short-lived raw SQLite connection for the long-lived relationship
+    scheduler. The scheduler only holds this for reservation bookkeeping;
+    heavy reads use managed connections."""
+    from app.repositories.sqlite import resolve_sqlite_path
+
+    path = resolve_sqlite_path(database_url)
+    connection = sqlite3.connect(path, check_same_thread=False)
+    connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA foreign_keys = ON")
+    return connection
 
 
 def create_app(
@@ -184,6 +204,48 @@ def create_app(
                 else:
                     persona_service.verify_existing_startup_state(startup_state)
             app.state.persona_compiler = persona_compiler
+
+            # Gate C3: build one local relationship scheduler and converge at startup.
+            long_lived_connection: sqlite3.Connection | None = None
+            try:
+                with managed_connection(settings.database_url) as connection:
+                    personas = PersonaRepository(connection)
+                    persona_state = personas.current_state()
+                    persona_artifact_id = (
+                        persona_state.artifact_id
+                        if persona_state is not None
+                        else None
+                    )
+                    if persona_artifact_id is None:
+                        raise RuntimeError(
+                            "relationship scheduler requires an active Persona"
+                        )
+                    RelationshipScheduler(
+                        RelationshipReconciler(connection),
+                        persona_artifact_id=persona_artifact_id,
+                    ).recover_and_scan(now=datetime.now(UTC))
+                long_lived_connection = _connect_database(settings.database_url)
+                app.state.relationship_scheduler = RelationshipScheduler(
+                    RelationshipReconciler(long_lived_connection),
+                    persona_artifact_id=persona_artifact_id,
+                )
+                app.state.relationship_change_notifier = (
+                    RelationshipChangeNotifierImpl(
+                        database_url=settings.database_url,
+                        persona_artifact_id=persona_artifact_id,
+                    )
+                )
+            except Exception:
+                # Relationship subsystem must never block app startup or chat.
+                if long_lived_connection is not None:
+                    try:
+                        long_lived_connection.close()
+                    except Exception:
+                        pass
+                app.state.relationship_scheduler = None
+                app.state.relationship_change_notifier = (
+                    NoOpRelationshipChangeNotifier()
+                )
 
             if settings.session_summary_enabled:
                 def read_summary_session_deletion_generation(session_id: str) -> int:
@@ -480,6 +542,11 @@ def create_app(
                                 policy=MemoryCommitPolicy(),
                                 source_references=source_reference_service,
                                 semantic_retries=settings.memory_commit_semantic_retries,
+                                relationship_notifier=getattr(
+                                    app.state,
+                                    "relationship_change_notifier",
+                                    NoOpRelationshipChangeNotifier(),
+                                ),
                             )
                             def snapshot_commit_targets():
                                 versioned.bootstrap_all_active_legacy(
@@ -661,6 +728,14 @@ def create_app(
                 await emotion_analysis_scheduler.shutdown()
             if summary_scheduler is not None:
                 await summary_scheduler.shutdown()
+            relationship_scheduler = getattr(
+                app.state, "relationship_scheduler", None
+            )
+            if relationship_scheduler is not None:
+                try:
+                    relationship_scheduler.close()
+                except Exception:
+                    pass
             await close_owned_resource(memory_provider)
             await close_owned_resource(analysis_provider)
             await close_owned_resource(chat_provider)
