@@ -70,7 +70,7 @@
 | Gate B | 版本化自动写入 + Evidence + 冲突状态机 | ✅ 已通过 |
 | Gate C1 | Persona Artifact + Context Composer | ✅ 已通过 |
 | Gate C2 | 摘要生成/注入 + Consent + Redaction | ✅ 已通过 |
-| Gate C3 | 关系投影（Tasks 1–8 完成；Tasks 9–11 已通过最终验收，Task 12 隐私原子化、Task 13 Persona/rule/rebuild、Task 14 关系上下文注入、Task 15 safe relationship APIs、Task 16 RelationshipPanel、Task 17 生命周期/独立性/隐私契约矩阵、Task 18 固定回放评估准备已实现） | 🟡 进行中 |
+| Gate C3 | 关系投影（Tasks 1–18 已实现并通过自动化技术证据：后端回归 1865 passed、隐私证据 20 passed、定向前端 74 passed + typecheck；**总体验收 `PENDING`**，等待人工 30 回复盲评评分卡与独立技术终审） | 🟡 验收中 |
 | Electron 桌面壳 | Windows 双窗口开发态桌面壳 | ⏳ 设计已批准 |
 | Live2D | 角色动画与表情 | ⏳ 待设计 |
 
@@ -176,6 +176,8 @@ $env:TTS_PROVIDER = "cosyvoice-http"
 - Gate C3 Task 16（显式记忆分类 UI 与独立 RelationshipPanel）：`docs/automatic-memory-gate-c3-task16-acceptance-2026-08-16.md`
 - Gate C3 Task 17（完整生命周期/独立性/HTTP smoke/隐私契约矩阵）：`docs/automatic-memory-gate-c3-task17-acceptance-2026-08-16.md`
 - Gate C3 Task 18（固定回放夹具与 30 回复人工评估准备）：`docs/automatic-memory-gate-c3-task18-acceptance-2026-08-16.md`
+- Gate C3 总体验收记录（`PENDING`）：`docs/automatic-memory-gate-c3-acceptance-2026-07-26.md`
+- Gate C3 人工评估评分卡模板：`docs/gate-c3-evaluation-scorecard-template.md`
 
 ### 项目总纲
 
