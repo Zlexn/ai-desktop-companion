@@ -10,6 +10,7 @@ import type {
   MemoryVersionPage,
   MemoryWriteConsent,
   MemoryWriteConsentAction,
+  RelationshipSubjectCode,
   UpdateMemoryRequest,
 } from '../api/types';
 import { MemoryAutomationControls } from './MemoryAutomationControls';
@@ -50,6 +51,111 @@ const MEMORY_TYPE_OPTIONS: Array<{ value: MemoryType; label: string }> = [
   { value: 'other', label: '其他' },
 ];
 
+export const RELATIONSHIP_SUBJECT_OPTIONS: Array<{
+  value: RelationshipSubjectCode;
+  label: string;
+}> = [
+  { value: 'preferred_address', label: '偏好的称呼' },
+  { value: 'shared_experience', label: '共同经历' },
+  { value: 'non_external_commitment', label: '不对外承诺' },
+];
+
+const RELATIONSHIP_SUBJECTS_BY_MEMORY_TYPE: Partial<Record<MemoryType, RelationshipSubjectCode[]>> = {
+  user_fact: ['preferred_address'],
+  preference: ['preferred_address'],
+  relationship_event: ['preferred_address', 'shared_experience', 'non_external_commitment'],
+};
+
+export function relationshipSubjectOptions(
+  memoryType: MemoryType,
+): Array<{ value: RelationshipSubjectCode; label: string }> {
+  const allowed = RELATIONSHIP_SUBJECTS_BY_MEMORY_TYPE[memoryType];
+  if (!allowed) return [];
+  return RELATIONSHIP_SUBJECT_OPTIONS.filter((option) => allowed.includes(option.value));
+}
+
+function MemorySubjectSelect({
+  label = '关系主题',
+  memoryType,
+  value,
+  onChange,
+  allowClear = false,
+}: {
+  label?: string;
+  memoryType: MemoryType;
+  value: RelationshipSubjectCode | '' | 'clear';
+  onChange: (value: RelationshipSubjectCode | '' | 'clear') => void;
+  allowClear?: boolean;
+}) {
+  const options = relationshipSubjectOptions(memoryType);
+  if (options.length === 0) return null;
+  return (
+    <label>
+      {label}
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value as RelationshipSubjectCode | '' | 'clear')}
+      >
+        <option value="">{allowClear ? '不指定（保留现有）' : '不指定'}</option>
+        {allowClear ? <option value="clear">清除关系主题</option> : null}
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>{option.label}</option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function PreferredAddressHint({ value }: { value: RelationshipSubjectCode | '' | 'clear' }) {
+  if (value !== 'preferred_address') return null;
+  return (
+    <p className="memory-panel__hint">偏好的称呼必须填写希望使用的准确称呼，不要填写解释或描述。</p>
+  );
+}
+
+function CandidateItem({
+  candidate,
+  loading,
+  onConfirm,
+  onDismiss,
+}: {
+  candidate: MemoryRecord;
+  loading: boolean;
+  onConfirm: (memoryId: string, subjectCode?: RelationshipSubjectCode | null) => Promise<void>;
+  onDismiss: (memoryId: string) => Promise<void>;
+}) {
+  const [subjectCode, setSubjectCode] = useState<RelationshipSubjectCode | '' | 'clear'>(
+    candidate.canonical_subject_code ?? '',
+  );
+  return (
+    <li className="memory-panel__item memory-panel__item--candidate">
+      <p>{candidate.content}</p>
+      <small>{candidate.memory_type} · importance {candidate.importance} · confidence {candidate.confidence.toFixed(2)}</small>
+      <MemorySubjectSelect
+        label="候选关系主题"
+        memoryType={candidate.memory_type}
+        value={subjectCode}
+        onChange={setSubjectCode}
+        allowClear
+      />
+      <PreferredAddressHint value={subjectCode} />
+      <div className="memory-panel__actions">
+        <button
+          type="button"
+          disabled={loading}
+          onClick={() => void onConfirm(
+            candidate.id,
+            subjectCode === '' || subjectCode === 'clear' ? null : subjectCode,
+          )}
+        >
+          保存为长期记忆
+        </button>
+        <button type="button" disabled={loading} onClick={() => void onDismiss(candidate.id)}>忽略</button>
+      </div>
+    </li>
+  );
+}
+
 export function numberDraftFromInput(input: HTMLInputElement): number | '' {
   if (input.value === '') return '';
   return Number.isFinite(input.valueAsNumber) ? input.valueAsNumber : '';
@@ -74,7 +180,7 @@ interface MemoryPanelProps {
   onResolveConflict?: (conflictId: string, request: MemoryConflictResolutionRequest) => Promise<void>;
   loadVersions?: (memoryId: string, cursor?: string | null) => Promise<MemoryVersionPage>;
   loadEvidence?: (memoryId: string, cursor?: string | null) => Promise<MemoryEvidencePage>;
-  onConfirmCandidate: (memoryId: string) => Promise<void>;
+  onConfirmCandidate: (memoryId: string, subjectCode?: RelationshipSubjectCode | null) => Promise<void>;
   onDismissCandidate: (memoryId: string) => Promise<void>;
 }
 
@@ -102,9 +208,11 @@ export function MemoryPanel({
 }: MemoryPanelProps) {
   const [content, setContent] = useState('');
   const [memoryType, setMemoryType] = useState<MemoryType>('preference');
+  const [subjectCode, setSubjectCode] = useState<RelationshipSubjectCode | '' | 'clear'>('');
   const [editingMemoryId, setEditingMemoryId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState('');
   const [editMemoryType, setEditMemoryType] = useState<MemoryType>('preference');
+  const [editSubjectCode, setEditSubjectCode] = useState<RelationshipSubjectCode | '' | 'clear'>('');
   const [editImportance, setEditImportance] = useState<number | ''>(3);
   const [editConfidence, setEditConfidence] = useState<number | ''>(1);
   const [isUpdating, setIsUpdating] = useState(false);
@@ -124,6 +232,7 @@ export function MemoryPanel({
     setEditingMemoryId(memory.id);
     setEditContent(memory.content);
     setEditMemoryType(memory.memory_type);
+    setEditSubjectCode(memory.canonical_subject_code ?? '');
     setEditImportance(memory.importance);
     setEditConfidence(memory.confidence);
   }
@@ -139,12 +248,18 @@ export function MemoryPanel({
 
     setIsUpdating(true);
     try {
-      await onUpdate(memoryId, {
+      const request: UpdateMemoryRequest = {
         content: cleanContent,
         memory_type: editMemoryType,
         importance: editImportance,
         confidence: editConfidence,
-      });
+      };
+      if (editSubjectCode === 'clear') {
+        request.canonical_subject_code = null;
+      } else if (editSubjectCode !== '') {
+        request.canonical_subject_code = editSubjectCode;
+      }
+      await onUpdate(memoryId, request);
       setEditingMemoryId(null);
     } catch {
       // The parent displays the shared error; keep the draft open for retry.
@@ -157,9 +272,19 @@ export function MemoryPanel({
     event.preventDefault();
     const cleanContent = content.trim();
     if (!cleanContent) return;
-    await onCreate({ content: cleanContent, memory_type: memoryType, importance: 3, confidence: 1 });
+    const request: CreateMemoryRequest = {
+      content: cleanContent,
+      memory_type: memoryType,
+      importance: 3,
+      confidence: 1,
+    };
+    if (subjectCode !== '' && subjectCode !== 'clear') {
+      request.canonical_subject_code = subjectCode;
+    }
+    await onCreate(request);
     setContent('');
     setMemoryType('preference');
+    setSubjectCode('');
   }
 
   return (
@@ -207,6 +332,12 @@ export function MemoryPanel({
             {MEMORY_TYPE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
         </label>
+        <MemorySubjectSelect
+          memoryType={memoryType}
+          value={subjectCode}
+          onChange={setSubjectCode}
+        />
+        <PreferredAddressHint value={subjectCode} />
         <button type="submit" disabled={!content.trim()}>保存记忆</button>
       </form>
       <section className="memory-panel__candidates" aria-label="待确认记忆">
@@ -215,14 +346,13 @@ export function MemoryPanel({
         {candidates.length === 0 ? <p>暂无待确认记忆。</p> : null}
         <ul className="memory-panel__list">
           {candidates.map((candidate) => (
-            <li key={candidate.id} className="memory-panel__item memory-panel__item--candidate">
-              <p>{candidate.content}</p>
-              <small>{candidate.memory_type} · importance {candidate.importance} · confidence {candidate.confidence.toFixed(2)}</small>
-              <div className="memory-panel__actions">
-                <button type="button" onClick={() => void onConfirmCandidate(candidate.id)}>保存为长期记忆</button>
-                <button type="button" onClick={() => void onDismissCandidate(candidate.id)}>忽略</button>
-              </div>
-            </li>
+            <CandidateItem
+              key={candidate.id}
+              candidate={candidate}
+              loading={loading}
+              onConfirm={onConfirmCandidate}
+              onDismiss={onDismissCandidate}
+            />
           ))}
         </ul>
       </section>
@@ -242,6 +372,14 @@ export function MemoryPanel({
                     {MEMORY_TYPE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                   </select>
                 </label>
+                <MemorySubjectSelect
+                  label="编辑关系主题"
+                  memoryType={editMemoryType}
+                  value={editSubjectCode}
+                  onChange={setEditSubjectCode}
+                  allowClear
+                />
+                <PreferredAddressHint value={editSubjectCode} />
                 <label>
                   编辑重要度
                   <input type="number" min={1} max={5} step={1} value={editImportance} onChange={(event) => setEditImportance(numberDraftFromInput(event.currentTarget))} />

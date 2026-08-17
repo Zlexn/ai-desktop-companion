@@ -1,7 +1,7 @@
 import { parseMessageExpressionResponse } from '../expression/events';
 import { streamMessageSpeech, streamSpeech } from './speechStream';
 import { streamTranscription } from './transcriptionStream';
-import type { ApiErrorEnvelope, ChatResponse, CreateMemoryRequest, EmotionAnalysisAudit, EmotionAnalysisConsent, EmotionAnalysisConsentAction, EmotionEvent, EmotionState, MemoryConflictPage, MemoryConflictResolutionRequest, MemoryConflictResolutionResponse, MemoryEvidencePage, MemoryForgetResponse, MemoryJobSummary, MemoryMutationResponse, MemoryRecord, MemoryStatus, MemoryUndoResponse, MemoryVersionPage, MemoryWriteConsent, MemoryWriteConsentAction, Message, MessageExpressionResponse, PersonaActivateRequest, PersonaArtifact, PersonaCapabilities, PersonaCreateRequest, PersonaRedactRequest, PersonaRedactResponse, Session, SpeechSynthesisResponse, SummaryAuditPage, SummaryAuthorityMutationRequest, SummaryCapabilities, SummaryInjectionConsent, SummaryJobMutationRequest, SummaryJobPage, SummaryMutationResponse, SummaryPage, SummaryProcessingConsent, SummaryRebuildRequest, SummaryRedactRequest, SummaryStatus, SynthesizeSpeechOptions, TranscribeAudioOptions, TranscriptionResult, UpdateMemoryRequest } from './types';
+import type { ApiErrorEnvelope, ChatResponse, CreateMemoryRequest, EmotionAnalysisAudit, EmotionAnalysisConsent, EmotionAnalysisConsentAction, EmotionEvent, EmotionState, MemoryConflictPage, MemoryConflictResolutionRequest, MemoryConflictResolutionResponse, MemoryEvidencePage, MemoryForgetResponse, MemoryJobSummary, MemoryMutationResponse, MemoryRecord, MemoryStatus, MemoryUndoResponse, MemoryVersionPage, MemoryWriteConsent, MemoryWriteConsentAction, Message, MessageExpressionResponse, PersonaActivateRequest, PersonaArtifact, PersonaCapabilities, PersonaCreateRequest, PersonaRedactRequest, PersonaRedactResponse, RelationshipAuditPage, RelationshipCapabilities, RelationshipEventPage, RelationshipJobPage, RelationshipMutationResponse, RelationshipProjection, RelationshipReconcileRequest, RelationshipRedactRequest, RelationshipReenableRequest, RelationshipSubjectCode, RelationshipSuppressRequest, Session, SpeechSynthesisResponse, SummaryAuditPage, SummaryAuthorityMutationRequest, SummaryCapabilities, SummaryInjectionConsent, SummaryJobMutationRequest, SummaryJobPage, SummaryMutationResponse, SummaryPage, SummaryProcessingConsent, SummaryRebuildRequest, SummaryRedactRequest, SummaryStatus, SynthesizeSpeechOptions, TranscribeAudioOptions, TranscriptionResult, UpdateMemoryRequest } from './types';
 
 async function requestJson<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T> {
   const response = await fetch(input, {
@@ -266,8 +266,14 @@ export const apiClient = {
     });
   },
 
-  confirmMemoryCandidate(memoryId: string): Promise<MemoryMutationResponse> {
-    return requestJson<MemoryMutationResponse>(`/api/memories/${memoryId}/confirm`, { method: 'POST' });
+  confirmMemoryCandidate(
+    memoryId: string,
+    subjectCode?: RelationshipSubjectCode | null,
+  ): Promise<MemoryMutationResponse> {
+    return requestJson<MemoryMutationResponse>(`/api/memories/${memoryId}/confirm`, {
+      method: 'POST',
+      body: JSON.stringify({ canonical_subject_code: subjectCode ?? null }),
+    });
   },
 
   dismissMemoryCandidate(memoryId: string): Promise<MemoryRecord> {
@@ -334,6 +340,88 @@ export const apiClient = {
 
   listMemoryJobs(limit = 20): Promise<MemoryJobSummary[]> {
     return requestJson<MemoryJobSummary[]>(`/api/memories/jobs?limit=${limit}`);
+  },
+
+  getRelationshipCapabilities(): Promise<RelationshipCapabilities> {
+    return requestJson<RelationshipCapabilities>('/api/relationship/capabilities');
+  },
+
+  getRelationshipProjection(): Promise<RelationshipProjection> {
+    return requestJson<RelationshipProjection>('/api/relationship/projection');
+  },
+
+  listRelationshipEvents(
+    options: { limit?: number; cursor?: string | null } = {},
+  ): Promise<RelationshipEventPage> {
+    const params = new URLSearchParams({ limit: String(options.limit ?? 20) });
+    if (options.cursor) params.set('cursor', options.cursor);
+    return requestJson<RelationshipEventPage>(`/api/relationship/events?${params}`);
+  },
+
+  listRelationshipJobs(
+    options: { limit?: number; cursor?: string | null } = {},
+  ): Promise<RelationshipJobPage> {
+    const params = new URLSearchParams({ limit: String(options.limit ?? 20) });
+    if (options.cursor) params.set('cursor', options.cursor);
+    return requestJson<RelationshipJobPage>(`/api/relationship/jobs?${params}`);
+  },
+
+  listRelationshipAudits(
+    options: { limit?: number; cursor?: string | null } = {},
+  ): Promise<RelationshipAuditPage> {
+    const params = new URLSearchParams({ limit: String(options.limit ?? 20) });
+    if (options.cursor) params.set('cursor', options.cursor);
+    return requestJson<RelationshipAuditPage>(`/api/relationship/audits?${params}`);
+  },
+
+  reconcileRelationship(
+    request: RelationshipReconcileRequest = {},
+  ): Promise<RelationshipJobPage> {
+    return requestJson<RelationshipJobPage>('/api/relationship/reconcile', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  },
+
+  rebuildRelationship(
+    request: RelationshipReconcileRequest = {},
+  ): Promise<RelationshipJobPage> {
+    return requestJson<RelationshipJobPage>('/api/relationship/rebuild', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  },
+
+  suppressRelationshipApply(
+    applyEventId: string,
+    request: RelationshipSuppressRequest,
+  ): Promise<RelationshipMutationResponse> {
+    return requestJson<RelationshipMutationResponse>(
+      `/api/relationship/events/${encodeURIComponent(applyEventId)}/suppress`,
+      { method: 'POST', body: JSON.stringify(request) },
+    );
+  },
+
+  redactRelationshipApply(
+    applyEventId: string,
+    request: RelationshipRedactRequest,
+  ): Promise<RelationshipMutationResponse> {
+    return requestJson<RelationshipMutationResponse>(
+      `/api/relationship/events/${encodeURIComponent(applyEventId)}/redact`,
+      { method: 'POST', body: JSON.stringify(request) },
+    );
+  },
+
+  reenableRelationshipAuthority(
+    sourceMemoryId: string,
+    eventType: string,
+    subjectCode: string,
+    request: RelationshipReenableRequest,
+  ): Promise<RelationshipMutationResponse> {
+    return requestJson<RelationshipMutationResponse>(
+      `/api/relationship/authorities/${encodeURIComponent(sourceMemoryId)}/${encodeURIComponent(eventType)}/${encodeURIComponent(subjectCode)}/reenable`,
+      { method: 'POST', body: JSON.stringify(request) },
+    );
   },
 
   getEmotionState(): Promise<EmotionState> {

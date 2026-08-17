@@ -19,6 +19,15 @@ import type {
   PersonaCapabilities,
   PersonaCreateRequest,
   PersonaRedactRequest,
+  RelationshipAudit,
+  RelationshipCapabilities,
+  RelationshipEvent,
+  RelationshipJob,
+  RelationshipProjection,
+  RelationshipReconcileRequest,
+  RelationshipRedactRequest,
+  RelationshipReenableRequest,
+  RelationshipSuppressRequest,
   Session,
   SummaryAudit,
   SummaryAuthorityMutationRequest,
@@ -46,6 +55,7 @@ import { EmotionPanel } from './EmotionPanel';
 import { MemoryPanel } from './MemoryPanel';
 import { MessageInput } from './MessageInput';
 import { MessageList } from './MessageList';
+import { RelationshipPanel } from './RelationshipPanel';
 import { SessionList } from './SessionList';
 import { SummaryPanel } from './SummaryPanel';
 import { VoiceRecorder } from './VoiceRecorder';
@@ -120,6 +130,24 @@ interface ChatLayoutProps {
   onRetryEmotion: () => Promise<void>;
   onUpdateEmotionAnalysisConsent: (action: EmotionAnalysisConsentAction) => Promise<void>;
   onRefreshEmotionAnalysisAudits: () => Promise<void>;
+  relationshipCapabilities: RelationshipCapabilities | null;
+  relationshipProjection: RelationshipProjection | null;
+  relationshipEvents: RelationshipEvent[];
+  relationshipJobs: RelationshipJob[];
+  relationshipAudits: RelationshipAudit[];
+  relationshipLoading: boolean;
+  relationshipError: string | null;
+  onRetryRelationship: () => Promise<void>;
+  onReconcileRelationship: (request: RelationshipReconcileRequest) => Promise<void>;
+  onRebuildRelationship: (request: RelationshipReconcileRequest) => Promise<void>;
+  onSuppressRelationshipApply: (applyEventId: string, request: RelationshipSuppressRequest) => Promise<void>;
+  onRedactRelationshipApply: (applyEventId: string, request: RelationshipRedactRequest) => Promise<void>;
+  onReenableRelationshipAuthority: (
+    sourceMemoryId: string,
+    eventType: string,
+    subjectCode: string,
+    request: RelationshipReenableRequest,
+  ) => Promise<void>;
   onCreateMemory: (request: CreateMemoryRequest) => Promise<void>;
   onUpdateMemory: (memoryId: string, request: UpdateMemoryRequest) => Promise<void>;
   onDeleteMemory: (memoryId: string) => Promise<void>;
@@ -206,6 +234,19 @@ export function ChatLayout({
   onRetryEmotion,
   onUpdateEmotionAnalysisConsent,
   onRefreshEmotionAnalysisAudits,
+  relationshipCapabilities,
+  relationshipProjection,
+  relationshipEvents,
+  relationshipJobs,
+  relationshipAudits,
+  relationshipLoading,
+  relationshipError,
+  onRetryRelationship,
+  onReconcileRelationship,
+  onRebuildRelationship,
+  onSuppressRelationshipApply,
+  onRedactRelationshipApply,
+  onReenableRelationshipAuthority,
   onCreateMemory,
   onUpdateMemory,
   onDeleteMemory,
@@ -287,6 +328,21 @@ export function ChatLayout({
           analysisAuditLoading={emotionAnalysisAuditLoading}
           onUpdateAnalysisConsent={onUpdateEmotionAnalysisConsent}
           onRefreshAnalysisAudits={onRefreshEmotionAnalysisAudits}
+        />
+        <RelationshipPanel
+          capabilities={relationshipCapabilities}
+          projection={relationshipProjection}
+          events={relationshipEvents}
+          jobs={relationshipJobs}
+          audits={relationshipAudits}
+          loading={relationshipLoading}
+          error={relationshipError}
+          onRetryLoad={onRetryRelationship}
+          onReconcile={onReconcileRelationship}
+          onRebuild={onRebuildRelationship}
+          onSuppress={onSuppressRelationshipApply}
+          onRedact={onRedactRelationshipApply}
+          onReenable={onReenableRelationshipAuthority}
         />
         <MemoryPanel
           memories={memories}

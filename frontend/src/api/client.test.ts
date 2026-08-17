@@ -392,12 +392,98 @@ describe('apiClient', () => {
     };
     vi.mocked(fetch)
       .mockResolvedValueOnce(new Response(JSON.stringify(confirmed), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(confirmed), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify(dismissed), { status: 200 }));
 
     await expect(apiClient.confirmMemoryCandidate('m1')).resolves.toEqual(confirmed);
+    await expect(apiClient.confirmMemoryCandidate('m2', 'preferred_address')).resolves.toEqual(confirmed);
     await expect(apiClient.dismissMemoryCandidate('m2')).resolves.toEqual(dismissed);
 
     expect(fetch).toHaveBeenCalledWith('/api/memories/m1/confirm', expect.objectContaining({ method: 'POST' }));
+    expect(fetch).toHaveBeenCalledWith('/api/memories/m2/confirm', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ canonical_subject_code: 'preferred_address' }),
+    }));
     expect(fetch).toHaveBeenCalledWith('/api/memories/m2/dismiss', expect.objectContaining({ method: 'POST' }));
+  });
+
+  it('uses exact relationship routes, bounded queries, and CAS mutation bodies', async () => {
+    const emptyPage = { items: [], next_cursor: null };
+    const projection = { available: false, projection_id: null, projection_version: null };
+    const mutation = {
+      outcome: 'suppressed',
+      authority: { source_memory_id: 'm1', event_type: 'preferred_address', subject_code: 'preferred_address', decision_id: 'd1', generation: 1, action: 'suppress', authority_epoch: 1, suppressed: true },
+      projection,
+    };
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(new Response(JSON.stringify({ local_only: true, remote_extraction: false, remote_consent_exists: false, projection: true }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(projection), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(emptyPage), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(emptyPage), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(emptyPage), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(emptyPage), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(emptyPage), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(mutation), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(mutation), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(mutation), { status: 200 }));
+
+    await apiClient.getRelationshipCapabilities();
+    await apiClient.getRelationshipProjection();
+    await apiClient.listRelationshipEvents({ limit: 100, cursor: 'event+cursor' });
+    await apiClient.listRelationshipJobs({ limit: 100, cursor: 'job+cursor' });
+    await apiClient.listRelationshipAudits({ limit: 100, cursor: 'audit+cursor' });
+    await apiClient.reconcileRelationship();
+    await apiClient.rebuildRelationship({ expected_projection_version: 3 });
+    await apiClient.suppressRelationshipApply('apply / 1', {
+      expected_decision_id: 'd1',
+      expected_decision_generation: 1,
+      expected_authority_epoch: 1,
+    });
+    await apiClient.redactRelationshipApply('apply / 1', {
+      expected_decision_id: 'd1',
+      expected_decision_generation: 1,
+      expected_authority_epoch: 1,
+      confirm_irreversible: true,
+    });
+    await apiClient.reenableRelationshipAuthority('memory / 1', 'preferred_address', 'preferred_address', {
+      expected_decision_id: 'd1',
+      expected_decision_generation: 1,
+      expected_authority_epoch: 1,
+    });
+
+    expect(fetch).toHaveBeenNthCalledWith(1, '/api/relationship/capabilities', expect.any(Object));
+    expect(fetch).toHaveBeenNthCalledWith(2, '/api/relationship/projection', expect.any(Object));
+    expect(String(vi.mocked(fetch).mock.calls[2][0])).toBe(
+      '/api/relationship/events?limit=100&cursor=event%2Bcursor',
+    );
+    expect(String(vi.mocked(fetch).mock.calls[3][0])).toBe(
+      '/api/relationship/jobs?limit=100&cursor=job%2Bcursor',
+    );
+    expect(String(vi.mocked(fetch).mock.calls[4][0])).toBe(
+      '/api/relationship/audits?limit=100&cursor=audit%2Bcursor',
+    );
+    expect(fetch).toHaveBeenNthCalledWith(6, '/api/relationship/reconcile', expect.objectContaining({
+      method: 'POST',
+      body: '{}',
+    }));
+    expect(fetch).toHaveBeenNthCalledWith(7, '/api/relationship/rebuild', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ expected_projection_version: 3 }),
+    }));
+    expect(fetch).toHaveBeenNthCalledWith(8, '/api/relationship/events/apply%20%2F%201/suppress', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ expected_decision_id: 'd1', expected_decision_generation: 1, expected_authority_epoch: 1 }),
+    }));
+    expect(fetch).toHaveBeenNthCalledWith(9, '/api/relationship/events/apply%20%2F%201/redact', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ expected_decision_id: 'd1', expected_decision_generation: 1, expected_authority_epoch: 1, confirm_irreversible: true }),
+    }));
+    expect(fetch).toHaveBeenNthCalledWith(10, '/api/relationship/authorities/memory%20%2F%201/preferred_address/preferred_address/reenable', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ expected_decision_id: 'd1', expected_decision_generation: 1, expected_authority_epoch: 1 }),
+    }));
+    expect(JSON.stringify(vi.mocked(fetch).mock.calls)).not.toMatch(
+      /payload_json|source_set_hash|canonical_key_hash|subject_key_hash|content_hash|inherited_authority_fingerprint|integrity_fingerprint|source_memory_version_id|source_event_ids|prompt|raw_response|api_key|hmac/i,
+    );
   });
 });

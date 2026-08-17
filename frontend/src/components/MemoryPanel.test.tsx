@@ -377,9 +377,97 @@ describe('MemoryPanel', () => {
     expect(screen.getByText('用户喜欢红茶。')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: '保存为长期记忆' }));
-    expect(onConfirmCandidate).toHaveBeenCalledWith('c1');
+    expect(onConfirmCandidate).toHaveBeenCalledWith('c1', null);
 
     await user.click(screen.getByRole('button', { name: '忽略' }));
     expect(onDismissCandidate).toHaveBeenCalledWith('c1');
+  });
+
+  it('confirms a candidate with an explicit relationship subject', async () => {
+    const onConfirmCandidate = vi.fn().mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    render(
+      <MemoryPanel
+        memories={[]}
+        candidates={[candidate]}
+        loading={false}
+        error={null}
+        conflicts={[]}
+        onCreate={vi.fn()}
+        onUpdate={vi.fn()}
+        onDelete={vi.fn()}
+        onConfirmCandidate={onConfirmCandidate}
+        onDismissCandidate={vi.fn()}
+      />,
+    );
+
+    await user.selectOptions(screen.getByLabelText('候选关系主题'), 'preferred_address');
+    expect(screen.getByText(/偏好的称呼必须填写希望使用的准确称呼/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '保存为长期记忆' }));
+    expect(onConfirmCandidate).toHaveBeenCalledWith('c1', 'preferred_address');
+  });
+
+  it('creates a relationship-event memory with an explicit subject', async () => {
+    const onCreate = vi.fn().mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    render(
+      <MemoryPanel
+        memories={[]}
+        candidates={[]}
+        loading={false}
+        error={null}
+        conflicts={[]}
+        onCreate={onCreate}
+        onUpdate={vi.fn()}
+        onDelete={vi.fn()}
+        onConfirmCandidate={vi.fn()}
+        onDismissCandidate={vi.fn()}
+      />,
+    );
+
+    await user.type(screen.getByLabelText('记忆内容'), '我们一起赏过雪。');
+    await user.selectOptions(screen.getByLabelText('记忆类型'), 'relationship_event');
+    await user.selectOptions(screen.getByLabelText('关系主题'), 'shared_experience');
+    await user.click(screen.getByRole('button', { name: '保存记忆' }));
+
+    expect(onCreate).toHaveBeenCalledWith({
+      content: '我们一起赏过雪。',
+      memory_type: 'relationship_event',
+      importance: 3,
+      confidence: 1,
+      canonical_subject_code: 'shared_experience',
+    });
+  });
+
+  it('clears an existing relationship subject on edit', async () => {
+    const onUpdate = vi.fn().mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    const withSubject: MemoryRecord = { ...memory, canonical_subject_code: 'preferred_address' };
+    render(
+      <MemoryPanel
+        memories={[withSubject]}
+        candidates={[]}
+        loading={false}
+        error={null}
+        conflicts={[]}
+        onCreate={vi.fn()}
+        onUpdate={onUpdate}
+        onDelete={vi.fn()}
+        onConfirmCandidate={vi.fn()}
+        onDismissCandidate={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: '编辑记忆' }));
+    await user.selectOptions(screen.getByLabelText('编辑关系主题'), 'clear');
+    await user.click(screen.getByRole('button', { name: '保存修改' }));
+
+    expect(onUpdate).toHaveBeenCalledWith('m1', {
+      content: memory.content,
+      memory_type: memory.memory_type,
+      importance: 3,
+      confidence: 1,
+      canonical_subject_code: null,
+    });
   });
 });

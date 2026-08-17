@@ -454,6 +454,73 @@ button:disabled {
   padding: 0.65rem;
 }
 
+.relationship-panel {
+  background: #f0f3fb;
+  border: 1px solid #aebfd8;
+  border-radius: 16px;
+  margin-top: 1rem;
+  padding: 1rem;
+}
+
+.relationship-panel__content,
+.relationship-panel__content section {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.relationship-panel__content section {
+  border-top: 1px solid #c4d0e2;
+  padding-top: 0.75rem;
+}
+
+.relationship-panel__content h3,
+.relationship-panel__content h4,
+.relationship-panel__content p {
+  margin: 0;
+}
+
+.relationship-panel__hint {
+  color: #44577a;
+  font-size: 0.9rem;
+}
+
+.relationship-panel__error {
+  color: #a33f3f;
+}
+
+.relationship-panel__list {
+  display: grid;
+  gap: 0.65rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.relationship-panel__list li {
+  background: #e6ecf7;
+  border: 1px solid #c4d0e2;
+  border-radius: 12px;
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.75rem;
+}
+
+.relationship-panel__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.relationship-panel__confirmation {
+  background: #fff2d6;
+  border: 1px solid #d8b96f;
+  border-radius: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.65rem;
+}
+
 .memory-panel {
   background: #fffaf2;
   border: 1px solid #cdbdaa;

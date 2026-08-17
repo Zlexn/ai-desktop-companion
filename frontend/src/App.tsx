@@ -22,6 +22,17 @@ import type {
   PersonaCapabilities,
   PersonaCreateRequest,
   PersonaRedactRequest,
+  RelationshipAudit,
+  RelationshipCapabilities,
+  RelationshipEvent,
+  RelationshipJob,
+  RelationshipMutationResponse,
+  RelationshipProjection,
+  RelationshipReconcileRequest,
+  RelationshipRedactRequest,
+  RelationshipReenableRequest,
+  RelationshipSubjectCode,
+  RelationshipSuppressRequest,
   Session,
   SummaryAudit,
   SummaryAuthorityMutationRequest,
@@ -83,6 +94,13 @@ export function App() {
   const [emotionConsentLoading, setEmotionConsentLoading] = useState(false);
   const [emotionAuditLoading, setEmotionAuditLoading] = useState(false);
   const [emotionError, setEmotionError] = useState<string | null>(null);
+  const [relationshipCapabilities, setRelationshipCapabilities] = useState<RelationshipCapabilities | null>(null);
+  const [relationshipProjection, setRelationshipProjection] = useState<RelationshipProjection | null>(null);
+  const [relationshipEvents, setRelationshipEvents] = useState<RelationshipEvent[]>([]);
+  const [relationshipJobs, setRelationshipJobs] = useState<RelationshipJob[]>([]);
+  const [relationshipAudits, setRelationshipAudits] = useState<RelationshipAudit[]>([]);
+  const [relationshipLoading, setRelationshipLoading] = useState(false);
+  const [relationshipError, setRelationshipError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const audioOutputDevices = useAudioOutputDevices();
@@ -106,6 +124,8 @@ export function App() {
   const personaRequestGenerationRef = useRef(0);
   const summaryRequestGenerationRef = useRef(0);
   const summaryMutationGenerationRef = useRef(0);
+  const relationshipRequestGenerationRef = useRef(0);
+  const relationshipMutationGenerationRef = useRef(0);
   const voiceTurnGenerationRef = useRef(0);
   const textSendGenerationRef = useRef(0);
   const messageLoadGenerationRef = useRef(0);
@@ -450,6 +470,113 @@ export function App() {
     await runSummaryMutation(() => apiClient.cancelSummaryJob(jobId, request));
   }
 
+  async function fetchRelationshipState() {
+    const [capabilities, projection, eventPage, jobPage, auditPage] = await Promise.all([
+      apiClient.getRelationshipCapabilities(),
+      apiClient.getRelationshipProjection(),
+      apiClient.listRelationshipEvents({ limit: 100 }),
+      apiClient.listRelationshipJobs({ limit: 100 }),
+      apiClient.listRelationshipAudits({ limit: 100 }),
+    ]);
+    return { capabilities, projection, eventPage, jobPage, auditPage };
+  }
+
+  function applyRelationshipState(state: Awaited<ReturnType<typeof fetchRelationshipState>>) {
+    setRelationshipCapabilities(state.capabilities);
+    setRelationshipProjection(state.projection);
+    setRelationshipEvents(state.eventPage.items);
+    setRelationshipJobs(state.jobPage.items);
+    setRelationshipAudits(state.auditPage.items);
+  }
+
+  async function loadRelationshipState() {
+    const requestGeneration = ++relationshipRequestGenerationRef.current;
+    const mutationGeneration = relationshipMutationGenerationRef.current;
+    setRelationshipLoading(true);
+    try {
+      const state = await fetchRelationshipState();
+      if (
+        requestGeneration !== relationshipRequestGenerationRef.current ||
+        mutationGeneration !== relationshipMutationGenerationRef.current
+      ) return;
+      applyRelationshipState(state);
+      setRelationshipError(null);
+    } catch (caught) {
+      if (
+        requestGeneration === relationshipRequestGenerationRef.current &&
+        mutationGeneration === relationshipMutationGenerationRef.current
+      ) setRelationshipError(errorMessage(caught));
+    } finally {
+      if (requestGeneration === relationshipRequestGenerationRef.current) {
+        setRelationshipLoading(false);
+      }
+    }
+  }
+
+  async function runRelationshipMutation(operation: () => Promise<unknown>) {
+    const mutationGeneration = ++relationshipMutationGenerationRef.current;
+    relationshipRequestGenerationRef.current += 1;
+    setRelationshipLoading(true);
+    setRelationshipError(null);
+    try {
+      await operation();
+      if (mutationGeneration !== relationshipMutationGenerationRef.current) return;
+      const state = await fetchRelationshipState();
+      if (mutationGeneration !== relationshipMutationGenerationRef.current) return;
+      applyRelationshipState(state);
+    } catch (caught) {
+      if (mutationGeneration !== relationshipMutationGenerationRef.current) return;
+      setRelationshipError(errorMessage(caught));
+      try {
+        const state = await fetchRelationshipState();
+        if (mutationGeneration !== relationshipMutationGenerationRef.current) return;
+        applyRelationshipState(state);
+      } catch {
+        // Preserve the mutation error while best-effort conflict refresh fails.
+      }
+    } finally {
+      if (mutationGeneration === relationshipMutationGenerationRef.current) {
+        setRelationshipLoading(false);
+      }
+    }
+  }
+
+  async function handleRelationshipReconcile(request: RelationshipReconcileRequest) {
+    await runRelationshipMutation(() => apiClient.reconcileRelationship(request));
+  }
+
+  async function handleRelationshipRebuild(request: RelationshipReconcileRequest) {
+    await runRelationshipMutation(() => apiClient.rebuildRelationship(request));
+  }
+
+  async function handleRelationshipSuppress(
+    applyEventId: string,
+    request: RelationshipSuppressRequest,
+  ) {
+    await runRelationshipMutation(() => apiClient.suppressRelationshipApply(applyEventId, request));
+  }
+
+  async function handleRelationshipRedact(
+    applyEventId: string,
+    request: RelationshipRedactRequest,
+  ) {
+    await runRelationshipMutation(() => apiClient.redactRelationshipApply(applyEventId, request));
+  }
+
+  async function handleRelationshipReenable(
+    sourceMemoryId: string,
+    eventType: string,
+    subjectCode: string,
+    request: RelationshipReenableRequest,
+  ) {
+    await runRelationshipMutation(() => apiClient.reenableRelationshipAuthority(
+      sourceMemoryId,
+      eventType,
+      subjectCode,
+      request,
+    ));
+  }
+
   async function loadEmotion() {
     const generation = ++emotionRequestGenerationRef.current;
     const consentGeneration = emotionConsentGenerationRef.current;
@@ -494,6 +621,9 @@ export function App() {
     }
     if (import.meta.env.MODE !== 'test' || import.meta.env.VITE_ENABLE_EMOTION_LOAD_IN_TEST === '1') {
       void loadEmotion();
+    }
+    if (import.meta.env.MODE !== 'test' || import.meta.env.VITE_ENABLE_RELATIONSHIP_LOAD_IN_TEST === '1') {
+      void loadRelationshipState();
     }
   }, []);
 
@@ -650,14 +780,18 @@ export function App() {
     }
   }
 
-  async function handleConfirmMemoryCandidate(memoryId: string) {
+  async function handleConfirmMemoryCandidate(
+    memoryId: string,
+    subjectCode?: RelationshipSubjectCode | null,
+  ) {
     setMemoryLoading(true);
     setMemoryError(null);
     try {
-      const response = await apiClient.confirmMemoryCandidate(memoryId);
+      const response = await apiClient.confirmMemoryCandidate(memoryId, subjectCode);
       setMemoryConflicts(response.conflicts);
       setMemoryCandidates((current) => current.filter((memory) => memory.id !== memoryId));
       setMemories((current) => [response.memory, ...current.filter((memory) => memory.id !== response.memory.id)]);
+      if (relationshipCapabilities !== null) void loadRelationshipState();
     } catch (caught) {
       setMemoryError(errorMessage(caught));
     } finally {
@@ -957,6 +1091,19 @@ export function App() {
       onRetryEmotion={loadEmotion}
       onUpdateEmotionAnalysisConsent={handleUpdateEmotionAnalysisConsent}
       onRefreshEmotionAnalysisAudits={refreshEmotionAnalysisAudits}
+      relationshipCapabilities={relationshipCapabilities}
+      relationshipProjection={relationshipProjection}
+      relationshipEvents={relationshipEvents}
+      relationshipJobs={relationshipJobs}
+      relationshipAudits={relationshipAudits}
+      relationshipLoading={relationshipLoading}
+      relationshipError={relationshipError}
+      onRetryRelationship={loadRelationshipState}
+      onReconcileRelationship={handleRelationshipReconcile}
+      onRebuildRelationship={handleRelationshipRebuild}
+      onSuppressRelationshipApply={handleRelationshipSuppress}
+      onRedactRelationshipApply={handleRelationshipRedact}
+      onReenableRelationshipAuthority={handleRelationshipReenable}
       audioController={audioController}
       audioInputDevices={audioInputDevices}
       audioOutputDevices={audioOutputDevices}

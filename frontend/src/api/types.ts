@@ -524,3 +524,112 @@ export type TranscriptionStreamEvent =
   | { type: 'final'; text: string; detectedLanguage: string | null; durationMs: number | null; provider: string; model: string; inferenceMs: number }
   | { type: 'done' }
   | { type: 'error'; message: string };
+
+export interface RelationshipCapabilities {
+  local_only: true;
+  remote_extraction: false;
+  remote_consent_exists: false;
+  projection: true;
+}
+
+export interface RelationshipProjection {
+  available: boolean;
+  projection_id: string | null;
+  projection_version: number | null;
+  familiarity_bucket: string | null;
+  preferred_address: string | null;
+  relationship_summary_code: string | null;
+  persona_artifact_id: string | null;
+  projection_rule_version: string | null;
+  contributing_event_count: number | null;
+}
+
+export interface RelationshipAuthorityView {
+  decision_id: string | null;
+  generation: number;
+  authority_epoch: number;
+  suppressed: boolean;
+}
+
+export interface RelationshipEvent {
+  id: string;
+  event_kind: 'apply' | 'revoke';
+  event_type: RelationshipSubjectCode;
+  subject_code: RelationshipSubjectCode;
+  payload_state: 'active' | 'redacted';
+  address: string | null;
+  source_memory_id: string | null;
+  revokes_event_id: string | null;
+  rule_version: string;
+  persona_artifact_id: string;
+  observed_at: string;
+  created_at: string;
+  authority: RelationshipAuthorityView;
+}
+
+export interface RelationshipJob {
+  id: string;
+  status: 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled' | 'skipped';
+  outcome: string | null;
+  source_memory_id: string | null;
+  captured_event_type: RelationshipSubjectCode;
+  captured_subject_code: RelationshipSubjectCode;
+  captured_record_head_version: number;
+  captured_record_generation: number;
+  captured_authority_generation: number;
+  captured_authority_epoch: number;
+  attempt_count: number;
+  reason_code: string | null;
+  error_category: string | null;
+  relationship_rule_version: string;
+  persona_artifact_id: string;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface RelationshipAudit {
+  id: string;
+  job_id: string;
+  outcome: string;
+  reason_code: string;
+  attempt_count: number;
+  created_at: string;
+}
+
+export type RelationshipEventPage = KeysetPage<RelationshipEvent>;
+export type RelationshipJobPage = KeysetPage<RelationshipJob>;
+export type RelationshipAuditPage = KeysetPage<RelationshipAudit>;
+
+export interface RelationshipSuppressRequest {
+  expected_decision_id: string | null;
+  expected_decision_generation: number;
+  expected_authority_epoch: number;
+}
+
+export interface RelationshipRedactRequest extends RelationshipSuppressRequest {
+  confirm_irreversible: true;
+}
+
+export interface RelationshipReenableRequest extends RelationshipSuppressRequest {}
+
+export interface RelationshipReconcileRequest {
+  expected_projection_version?: number | null;
+}
+
+export interface RelationshipAuthoritySnapshot {
+  source_memory_id: string;
+  event_type: string;
+  subject_code: string;
+  decision_id: string | null;
+  generation: number;
+  action: string | null;
+  authority_epoch: number;
+  suppressed: boolean;
+}
+
+export interface RelationshipMutationResponse {
+  outcome: 'suppressed' | 'redacted' | 'reenabled';
+  authority: RelationshipAuthoritySnapshot;
+  projection: RelationshipProjection;
+}

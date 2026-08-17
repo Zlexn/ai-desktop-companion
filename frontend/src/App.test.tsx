@@ -1290,6 +1290,43 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: '启用本地注入' })).toBeInTheDocument();
   });
 
+  it('loads RelationshipPanel independently when enabled for tests', async () => {
+    vi.stubEnv('VITE_ENABLE_RELATIONSHIP_LOAD_IN_TEST', '1');
+    const emptyPage = { items: [], next_cursor: null };
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse([]))
+      .mockResolvedValueOnce(jsonResponse({
+        local_only: true,
+        remote_extraction: false,
+        remote_consent_exists: false,
+        projection: true,
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        available: true,
+        projection_id: 'projection-1',
+        projection_version: 1,
+        familiarity_bucket: 'steady',
+        preferred_address: '小雪',
+        relationship_summary_code: 'steady',
+        persona_artifact_id: 'persona-1',
+        projection_rule_version: 'relationship-projection-v1',
+        contributing_event_count: 1,
+      }))
+      .mockResolvedValueOnce(jsonResponse(emptyPage))
+      .mockResolvedValueOnce(jsonResponse(emptyPage))
+      .mockResolvedValueOnce(jsonResponse(emptyPage));
+
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByText('关系投影')).toBeInTheDocument());
+    await userEvent.click(screen.getByText('关系投影'));
+    expect(screen.getByText('本地关系投影（非事实）')).toBeInTheDocument();
+    expect(screen.getByText(/仅本地模式 · 无远程抽取 · 无远程授权/)).toBeInTheDocument();
+    expect(screen.getByText(/当前称呼：小雪/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '重新收敛' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '完整重建' })).toBeInTheDocument();
+  });
+
   it('shows output unsupported message while keeping default playback path available', async () => {
     delete (HTMLMediaElement.prototype as Partial<HTMLMediaElement>).setSinkId;
     Object.defineProperty(navigator, 'mediaDevices', {
