@@ -20,7 +20,7 @@ def _compiler() -> PersonaCompiler:
     )
 
 
-def _config(name: str = "林夕") -> dict[str, object]:
+def _config(name: str = "雪乃") -> dict[str, object]:
     renderer = default_prompt_renderer()
     config = renderer.load_persona_v1_config()
     config["identity"] = {**config["identity"], "name": name}

@@ -9,7 +9,7 @@ from app.main import create_app
 
 
 def test_speech_api_returns_binary_wav_and_headers(client: TestClient) -> None:
-    response = client.post("/api/audio/speech", json={"text": "林夕测试音", "voice_id": "fake-default", "speed": 1.0})
+    response = client.post("/api/audio/speech", json={"text": "雪乃测试音", "voice_id": "fake-default", "speed": 1.0})
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("audio/wav")

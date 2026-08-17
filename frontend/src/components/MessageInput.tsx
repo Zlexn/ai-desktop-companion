@@ -95,7 +95,7 @@ export function MessageInput({
           id="message-content"
           value={content}
           disabled={disabled}
-          placeholder="和林夕说点什么……"
+          placeholder="和雪乃说点什么……"
           onChange={(event) => setContent(event.target.value)}
         />
         <button type="submit" disabled={disabled || content.trim().length === 0}>

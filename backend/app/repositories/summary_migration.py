@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-import json
 import sqlite3
 from uuid import uuid5, NAMESPACE_URL
 

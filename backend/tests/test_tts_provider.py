@@ -13,8 +13,8 @@ from app.tts.fake_provider import FakeTTSProvider
 async def test_fake_tts_returns_valid_deterministic_wav() -> None:
     provider = FakeTTSProvider()
 
-    first = await provider.synthesize("林夕测试音", "fake-default", 1.0)
-    second = await provider.synthesize("林夕测试音", "fake-default", 1.0)
+    first = await provider.synthesize("雪乃测试音", "fake-default", 1.0)
+    second = await provider.synthesize("雪乃测试音", "fake-default", 1.0)
 
     assert first.audio_bytes == second.audio_bytes
     assert first.audio_bytes.startswith(b"RIFF")

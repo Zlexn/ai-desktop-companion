@@ -1,9 +1,10 @@
-# Gate C3 验收记录（Task 19）— 状态：PENDING（等待人工评分卡与独立终审）
+# Gate C3 验收记录（Task 19）— 状态：PENDING（用户放弃盲评，改看真实对话；独立终审未完成）
 
-> 日期：2026-08-16（会话工作区快照 20260710）
+> 日期：2026-08-16（会话工作区快照 20260710）；2026-08-17 更新：用户放弃人工盲评方向
 > 计划：`docs/superpowers/plans/2026-07-26-automatic-memory-gate-c3-relationship-projection.md` Task 19
 > 说明：本记录如实列出已完成的技术证据与仍未满足的验收条件。**Gate C3 目前不视为完成**；
-> 人工质量评分卡（Step 3）与独立技术终审（Step 4）未完成，缺少任一即保持 `PENDING`。
+> 用户于 2026-08-17 明确放弃人工 30 回复盲评评分卡，改为直接查看真实对话判断角色一致性
+> （对话样例见 `docs/show-snow-persona-*.json`）；独立技术终审（Step 4）仍未完成，未完成即保持 `PENDING`。
 
 ## 1. 实施范围（已实现）
 
@@ -86,13 +87,15 @@ npm --prefix frontend test（全量）与 npm --prefix frontend run build
 `test_relationship_true_forget.py` + `test_gate_c3_privacy_contract.py`：同一 Gate B
 写事务内 revoke + suppress + payload 物理清 NULL + 激活无地址投影；全部可读表面断言哨兵缺席。
 
-## 6. 人工评估分数 — **PENDING**
+## 6. 人工评估 — **方向变更（2026-08-17）：放弃盲评评分卡**
 
-- 已提供：`docs/gate-c3-evaluation-scorecard-template.md`（盲评协议、五类别 0–2 分、
-  阈值 `>= 1.6` 无舍入、低分 `< 5%`、多名审阅者独立判定、`PASS/FAIL/PENDING`）。
-- `test_gate_c3_fixed_replay.py` 校验评分算术但不伪造人工分数。
-- **未完成**：真实 30 回复盲评（需人类评审者对真实配置聊天 Provider 的回复打分；
-  fake/recording 证据不计入人工阈值）。未满足 → Gate C3 保持 `PENDING`。
+- 原计划 Step 3 为人工 30 回复盲评评分卡（`docs/gate-c3-evaluation-scorecard-template.md`，
+  五类别 0–2 分、阈值 `>= 1.6` 无舍入、低分 `< 5%`）。
+- 用户于 2026-08-17 明确放弃盲评方向，改为**直接查看真实对话**判断角色一致性。
+- 已用真实 DeepSeek Provider 生成 8 条日常对话样例：`docs/show-snow-persona-20260817-193115.json`
+  （新 persona：雪之下雪乃，毒舌/冷静/不坦率但温柔；后端回归 1865 passed、前端 typecheck PASS）。
+- `test_gate_c3_fixed_replay.py` 的评分算术校验仍保留（不伪造人工分数）。
+- **未完成**：用户对真实对话的最终判定、独立技术终审 APPROVED。未满足 → Gate C3 保持 `PENDING`。
 
 ## 7. 独立技术终审 — **PENDING**
 
@@ -104,17 +107,20 @@ npm --prefix frontend test（全量）与 npm --prefix frontend run build
 
 - 全量前端测试与 `npm run build` 因沙箱 `spawn EPERM` 未在本会话运行（用户拒绝提权）；
   已用覆盖全部改动文件的定向测试 + typecheck 替代。
-- 未刻意运行真实聊天 Provider（避免把 fake 回复当作人工质量证据）；人工闸门因此保持 PENDING。
+- 2026-08-17 已用真实聊天 Provider（DeepSeek）生成 persona 对话样例供用户直接判断
+  （`docs/show-snow-persona-20260817-193115.json`）；用户最终判定仍未完成。
 
 ## 9. 树状态与提交声明
 
-- `git status --short` 干净；最近提交：`8ad352c test: add Gate C3 fixed replay evaluation`。
-- 未对本记录做 Git 变更（本记录为工作区新文件，待人工/终审步骤完成后一并归档提交）。
+- 最近提交：`22d1d68 docs: record Gate C3 acceptance PENDING status`；2026-08-17 追加
+  persona 修复（雪之下雪乃）与文档更新提交。
+- 本记录为工作区文件，随 persona 修复一并提交；最终人工判定/独立终审完成后可另行更新。
 
 ## 10. 结论
 
 Gate C3 **PENDING**：全部自动化技术证据通过（后端 1865 passed、隐私证据 20 passed、
-compileall/diff-check/typecheck/定向前端 74 passed），但 Step 3（人工评分卡）与
-Step 4（独立终审）未完成。按计划要求，缺少人工评分或独立终审任一即不得标记完成。
-准确 blocker：**① 真实 30 回复盲评评分卡缺失；② 独立技术终审 APPROVED 缺失；
+compileall/diff-check/typecheck/定向前端 74 passed），用户已放弃盲评评分卡方向、改为直接查看
+真实对话判断（对话样例已生成待用户判定），Step 4（独立终审）仍未完成。按计划要求，
+独立终审未完成即不得标记完成。
+准确 blocker：**① 用户对真实对话样例的最终判定未完成；② 独立技术终审 APPROVED 缺失；
 ③ 沙箱阻止全量前端测试/build 运行（用户已拒绝提权）**。

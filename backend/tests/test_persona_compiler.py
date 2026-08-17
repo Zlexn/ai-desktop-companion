@@ -20,7 +20,7 @@ FIXTURE_PATH = Path(__file__).parent / "fixtures" / "persona_v1_bootstrap.json"
 def _valid_config() -> dict[str, object]:
     return {
         "identity": {
-            "name": " 林夕 ",
+            "name": " 雪乃 ",
             "species": "原创虚拟角色",
             "role": "陪伴型文字对话伙伴",
         },
@@ -59,15 +59,15 @@ def test_canonical_json_and_frame_are_deterministic() -> None:
 def test_compiler_normalizes_outer_whitespace_without_unicode_folding() -> None:
     compiled = _compiler().compile(_valid_config())
 
-    assert compiled.source_content["identity"]["name"] == "林夕"
+    assert compiled.source_content["identity"]["name"] == "雪乃"
     assert compiled.source_content["personality"]["core_traits"] == ["温和", "可靠"]
 
     variant = _valid_config()
     variant["identity"] = {
         **variant["identity"],
-        "name": "林夕",
+        "name": "雪乃",
     }
-    assert _compiler().compile(variant).source_content["identity"]["name"] == "林夕"
+    assert _compiler().compile(variant).source_content["identity"]["name"] == "雪乃"
 
 
 def test_behavior_fingerprint_binds_every_behavior_input() -> None:

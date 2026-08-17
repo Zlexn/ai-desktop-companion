@@ -261,7 +261,7 @@ def test_persona_switch_preserves_event_derived_numerical_state(
         # Activate a second persona with a different config: numerical state
         # must be preserved and no new relationship events invented.
         config = renderer.load_persona_v1_config()
-        config = {**config, "identity": {**config["identity"], "name": "雪之下雪乃"}}
+        config = {**config, "identity": {**config["identity"], "name": "切换测试角色"}}
         second = personas.create_and_activate(
             config,
             expected_artifact_id=first.artifact.id,

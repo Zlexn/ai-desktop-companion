@@ -6,8 +6,8 @@ from app.services.prompt_renderer import PromptRenderer, default_prompt_renderer
 def test_prompt_renderer_includes_character_and_stage_boundaries() -> None:
     prompt = default_prompt_renderer().render()
 
-    assert "林夕" in prompt
-    assert "温和" in prompt
+    assert "雪之下雪乃" in prompt
+    assert "毒舌" in prompt
     assert "不得声称自己是真人" in prompt
     assert "不得声称自己具有真实意识" in prompt
     assert "不得编造不存在的长期记忆" in prompt
@@ -33,7 +33,7 @@ def test_prompt_renderer_loads_bootstrap_inputs() -> None:
     source = renderer.load_source_config()
     persona = renderer.load_persona_v1_config()
 
-    assert source["identity"]["name"] == "林夕"
+    assert source["identity"]["name"] == "雪之下雪乃"
     assert "{name}" in renderer.load_template_text()
     assert persona["identity"] == source["identity"]
     assert persona["additional_prohibitions"] == source["prohibitions"]
@@ -88,4 +88,4 @@ def test_route_files_do_not_hardcode_character_name() -> None:
 
     route_text = "\n".join(path.read_text(encoding="utf-8") for path in routes_dir.glob("*.py"))
 
-    assert "林夕" not in route_text
+    assert "雪之下雪乃" not in route_text

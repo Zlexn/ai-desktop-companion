@@ -18,7 +18,7 @@ from app.services.prompt_renderer import default_prompt_renderer
 NOW = datetime(2026, 7, 21, tzinfo=UTC)
 
 
-def _config(name: str = "林夕") -> dict[str, object]:
+def _config(name: str = "雪乃") -> dict[str, object]:
     config = default_prompt_renderer().load_persona_v1_config()
     config["identity"] = {**config["identity"], "name": name}
     return config

@@ -17,7 +17,7 @@ export function MessageList({ messages, audioController, playbackBlocked }: Mess
     <div className="message-list" aria-label="消息列表">
       {messages.map((message) => (
         <article className={`message message--${message.role}`} key={message.id}>
-          <span className="message__role">{message.role === 'user' ? '你' : '林夕'}</span>
+          <span className="message__role">{message.role === 'user' ? '你' : '雪乃'}</span>
           <p>{message.content}</p>
           {message.role === 'assistant' ? (
             <AssistantAudioControls

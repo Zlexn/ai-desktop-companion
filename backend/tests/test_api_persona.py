@@ -21,7 +21,7 @@ def client(tmp_path: Path):
         yield value
 
 
-def _config(name: str = "林夕") -> dict[str, object]:
+def _config(name: str = "雪乃") -> dict[str, object]:
     return {
         "identity": {
             "name": name,
@@ -62,7 +62,7 @@ def test_persona_list_and_detail_return_bounded_config(client) -> None:
 
     assert listing.status_code == 200
     assert listing.json() == [detail.json()]
-    assert detail.json()["config"]["identity"]["name"] == "林夕"
+    assert detail.json()["config"]["identity"]["name"] == "雪之下雪乃"
     assert "rendered_system_prompt" not in detail.text
 
 

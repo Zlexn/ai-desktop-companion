@@ -909,7 +909,7 @@ async def test_gate_c1_protected_overflow_calls_no_provider(tmp_path: Path) -> N
         settings = Settings(
             llm_model="test-model",
             chat_context_max_characters=2001,
-            persona_max_characters=1024,
+            persona_max_characters=2048,
             chat_current_user_max_characters=1002,
         )
         service = _chat_service(
@@ -1010,7 +1010,7 @@ async def test_chat_service_sends_system_prompt_and_full_recent_context_on_secon
 
         second_call = provider.calls[1]
         assert second_call[0].role == ChatRole.SYSTEM
-        assert "林夕" in second_call[0].content
+        assert "雪之下雪乃" in second_call[0].content
         assert [(message.role, message.content) for message in second_call[1:]] == [
             (ChatRole.USER, "第一轮用户消息"),
             (ChatRole.ASSISTANT, first_reply.reply),
@@ -1405,7 +1405,7 @@ async def test_chat_service_prunes_old_history_before_provider_when_context_is_l
         sent = provider.calls[0]
         sent_text = "\n".join(message.content for message in sent)
         assert sent[0].role == ChatRole.SYSTEM
-        assert "林夕" in sent[0].content
+        assert "雪之下雪乃" in sent[0].content
         assert sent[-1] == LLMMessage(role=ChatRole.USER, content=current_text)
         assert "旧消息 0" not in sent_text
         assert sum(len(message.content) for message in sent) <= 24_000

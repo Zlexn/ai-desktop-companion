@@ -5,7 +5,7 @@ import type { PersonaArtifact, PersonaCapabilities, PersonaConfig } from '../api
 import { PersonaPanel } from './PersonaPanel';
 
 const config: PersonaConfig = {
-  identity: { name: '林夕', species: '原创虚拟角色', role: '文字伙伴' },
+  identity: { name: '雪乃', species: '虚拟角色', role: '文字伙伴' },
   background: '安静书房',
   personality: { core_traits: ['温和'], values: ['准确'] },
   language_style: { tone: '克制', habits: ['简洁'] },
