@@ -177,7 +177,7 @@ $env:TTS_PROVIDER = "cosyvoice-http"
 - Gate C3 Task 17（完整生命周期/独立性/HTTP smoke/隐私契约矩阵）：`docs/automatic-memory-gate-c3-task17-acceptance-2026-08-16.md`
 - Gate C3 Task 18（固定回放夹具与 30 回复人工评估准备）：`docs/automatic-memory-gate-c3-task18-acceptance-2026-08-16.md`
 - Gate C3 总体验收记录（`PENDING`）：`docs/automatic-memory-gate-c3-acceptance-2026-07-26.md`
-- Gate C3 人工评估评分卡模板：`docs/gate-c3-evaluation-scorecard-template.md`
+- Gate C3 persona 修复对话样例：`docs/show-snow-persona-20260817-193115.json`
 
 ### 项目总纲
 

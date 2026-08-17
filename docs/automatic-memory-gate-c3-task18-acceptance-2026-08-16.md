@@ -1,7 +1,7 @@
 # Gate C3 Task 18 验收证据 — 固定回放夹具与 30 回复人工评估准备
 
 > 日期：2026-08-16（会话工作区快照 20260710）
-> 范围：`backend/tests/fixtures/gate_c3_replay_v1.json`（新建）、`backend/tests/test_gate_c3_fixed_replay.py`（新建）、`docs/gate-c3-evaluation-scorecard-template.md`（新建）
+> 范围：`backend/tests/fixtures/gate_c3_replay_v1.json`（新建）、`backend/tests/test_gate_c3_fixed_replay.py`（新建）、`docs/gate-c3-evaluation-scorecard-template.md`（新建；**已按用户指示于 2026-08-17 删除**，用户放弃盲评方向，改为直接查看真实对话判断，对话样例见 `docs/show-snow-persona-20260817-193115.json`）
 
 ## 目标
 
@@ -30,9 +30,9 @@
 - 评分卡算术：类别平均 `>= 1.6` 无舍入、低分比例 `< 0.05`、边界用例（2/30 低分失败）校验，不伪造人工分数；
 - 无关系注入时聊天仍存活。
 
-### 3. `docs/gate-c3-evaluation-scorecard-template.md`
+### 3. `docs/gate-c3-evaluation-scorecard-template.md`（已按用户指示删除，2026-08-17）
 
-盲评协议（乱序、隐藏实现标签、记录运行元数据不含凭据）、五类别定义、阈值（精确除法无舍入）、低分回复定义与上限、禁止行为立即失败、多名审阅者独立判定、`PASS/FAIL/PENDING` 结论记录；明确 fake/recording 证据不计入人工阈值，未运行真实 Provider 时 Gate C3 保持 `PENDING`。
+盲评协议（乱序、隐藏实现标签、记录运行元数据不含凭据）、五类别定义、阈值（精确除法无舍入）、低分回复定义与上限、禁止行为立即失败、多名审阅者独立判定、`PASS/FAIL/PENDING` 结论记录；明确 fake/recording 证据不计入人工阈值，未运行真实 Provider 时 Gate C3 保持 `PENDING`。评分卡算术校验逻辑保留在 `test_gate_c3_fixed_replay.py` 中（不伪造人工分数）；模板文件本身随盲评方向放弃而删除。
 
 ## 验证
 

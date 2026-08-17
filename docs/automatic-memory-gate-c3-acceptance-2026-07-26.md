@@ -89,8 +89,9 @@ npm --prefix frontend test（全量）与 npm --prefix frontend run build
 
 ## 6. 人工评估 — **方向变更（2026-08-17）：放弃盲评评分卡**
 
-- 原计划 Step 3 为人工 30 回复盲评评分卡（`docs/gate-c3-evaluation-scorecard-template.md`，
-  五类别 0–2 分、阈值 `>= 1.6` 无舍入、低分 `< 5%`）。
+- 原计划 Step 3 为人工 30 回复盲评评分卡（五类别 0–2 分、阈值 `>= 1.6` 无舍入、
+  低分 `< 5%`；模板 `docs/gate-c3-evaluation-scorecard-template.md` 已按用户指示
+  于 2026-08-17 删除）。
 - 用户于 2026-08-17 明确放弃盲评方向，改为**直接查看真实对话**判断角色一致性。
 - 已用真实 DeepSeek Provider 生成 8 条日常对话样例：`docs/show-snow-persona-20260817-193115.json`
   （新 persona：雪之下雪乃，毒舌/冷静/不坦率但温柔；后端回归 1865 passed、前端 typecheck PASS）。
