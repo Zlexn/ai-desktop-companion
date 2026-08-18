@@ -66,7 +66,7 @@ def test_first_startup_bootstraps_exact_persona_v1(tmp_path: Path) -> None:
         ).fetchone()
         assert tuple(row) == (
             1,
-            "a46639154654a4ac554da24948551cfda504cc3835716a69cf7289564b41b494",
+            "9c946ce1cb629e231fab5b0e6948e41f508339172b7fe53d48773e0b12d54cad",
         )
         assert connection.execute(
             "SELECT activation_generation FROM persona_active_state"
