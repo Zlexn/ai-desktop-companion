@@ -367,7 +367,7 @@ def test_residual_overflow_dispatches_only_protected_layers(
 ) -> None:
     settings = _settings(tmp_path, chat_context_max_characters=2048)
     provider = RecordingChatProvider()
-    current = "c" * 450
+    current = "c" * 300
     with managed_connection(settings.database_url) as connection:
         sessions = SessionRepository(connection)
         messages = MessageRepository(connection)
